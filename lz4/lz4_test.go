@@ -3,6 +3,8 @@ package lz4
 import (
 	"testing"
 	"github.com/stretchr/testify/require"
+	"io/ioutil"
+	"github.com/pierrec/lz4"
 )
 
 func Test_VersionNumber(t *testing.T) {
@@ -18,4 +20,36 @@ func Test_CompressDefault(t *testing.T) {
 	output = output[:compressedSize]
 	input = make([]byte, len(input))
 	should.Equal(len(input), DecompressSafe(output, input))
+}
+
+func Benchmark_cgo(b *testing.B) {
+	input, err := ioutil.ReadFile("/tmp/orig-session.json")
+	if err != nil {
+		b.Error(err)
+		return
+	}
+	output := make([]byte, CompressBound(len(input)))
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		compressedSize := CompressDefault(input, output)
+		compressed := output[:compressedSize]
+		DecompressSafe(compressed, input)
+	}
+}
+
+func Benchmark_pierrec_lz4(b *testing.B) {
+	input, err := ioutil.ReadFile("/tmp/orig-session.json")
+	if err != nil {
+		b.Error(err)
+		return
+	}
+	output := make([]byte, CompressBound(len(input)))
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		compressedSize, _ := lz4.CompressBlock(input, output, 0)
+		compressed := output[:compressedSize]
+		lz4.UncompressBlock(compressed, input, 0)
+	}
 }
