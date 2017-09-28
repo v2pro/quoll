@@ -5,7 +5,7 @@ import (
 	"unsafe"
 )
 
-// #cgo CPPFLAGS: -I /home/xiaoju/workspace/v2pro/src/github.com/cockroachdb/c-lz4/internal/lib
+// #cgo CPPFLAGS: -I ../../../cockroachdb/c-lz4/internal/lib
 // #cgo darwin LDFLAGS: -Wl,-undefined -Wl,dynamic_lookup
 // #cgo !darwin LDFLAGS: -Wl,-unresolved-symbols=ignore-all
 // #include "lz4.h"
