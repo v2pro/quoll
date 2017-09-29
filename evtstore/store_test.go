@@ -29,3 +29,13 @@ func Test_add(t *testing.T) {
 	dir, _ := fs.ReadDir("/tmp")
 	should.Equal("197001010800", dir[0].Name())
 }
+
+func Test_list(t *testing.T) {
+	reset()
+	should := require.New(t)
+	should.Nil(testStore.Add([]byte(`{"url":"/hello"}`)))
+	should.Nil(testStore.Add([]byte(`{"url":"/hello"}`)))
+	events, err := testStore.List(now(), 0, 2)
+	should.Nil(err)
+	should.Len(events, 2)
+}
