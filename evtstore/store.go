@@ -23,9 +23,10 @@ var mockedNow *time.Time
 type Store struct {
 	RootDir        string
 	compressionBuf []byte
+	currentFile vfs.File
 }
 
-func (store *Store) Add(eventJson EventJson) error {
+func (store *Store) openFile() error {
 	ts := now().Format("200601021504")
 	file, err := fs.OpenFile(
 		path.Join(store.RootDir, ts), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
@@ -36,8 +37,18 @@ func (store *Store) Add(eventJson EventJson) error {
 			return err
 		}
 	}
-	defer file.Close()
 	file.Seek(0, io.SeekEnd)
+	store.currentFile = file
+	return nil
+}
+
+func (store *Store) Add(eventJson EventJson) error {
+	if store.currentFile == nil {
+		if err := store.openFile(); err != nil {
+			return err
+		}
+	}
+	file := store.currentFile
 	var lenBytes [4]byte
 	bound := lz4.CompressBound(len(eventJson))
 	if len(store.compressionBuf) < bound {
@@ -45,7 +56,7 @@ func (store *Store) Add(eventJson EventJson) error {
 	}
 	compressedSize := lz4.CompressDefault(eventJson, store.compressionBuf)
 	binary.LittleEndian.PutUint32(lenBytes[:], uint32(compressedSize+4))
-	_, err = file.Write(lenBytes[:])
+	_, err := file.Write(lenBytes[:])
 	if err != nil {
 		return err
 	}
