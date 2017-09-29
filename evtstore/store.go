@@ -7,15 +7,22 @@ import (
 	"time"
 	"io"
 	"encoding/binary"
+	"github.com/v2pro/quoll/lz4"
 )
 
 type EventJson []byte
+
+type CompressedEvent struct {
+	OriginalSize uint32
+	Data         []byte
+}
 
 var fs vfs.Filesystem = vfs.OS()
 var mockedNow *time.Time
 
 type Store struct {
-	RootDir string
+	RootDir        string
+	compressionBuf []byte
 }
 
 func (store *Store) Add(eventJson EventJson) error {
@@ -32,19 +39,29 @@ func (store *Store) Add(eventJson EventJson) error {
 	defer file.Close()
 	file.Seek(0, io.SeekEnd)
 	var lenBytes [4]byte
+	bound := lz4.CompressBound(len(eventJson))
+	if len(store.compressionBuf) < bound {
+		store.compressionBuf = make([]byte, bound)
+	}
+	compressedSize := lz4.CompressDefault(eventJson, store.compressionBuf)
+	binary.LittleEndian.PutUint32(lenBytes[:], uint32(compressedSize+4))
+	_, err = file.Write(lenBytes[:])
+	if err != nil {
+		return err
+	}
 	binary.LittleEndian.PutUint32(lenBytes[:], uint32(len(eventJson)))
 	_, err = file.Write(lenBytes[:])
 	if err != nil {
 		return err
 	}
-	_, err = file.Write(eventJson)
+	_, err = file.Write(store.compressionBuf[:compressedSize])
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (store *Store) List(targetTime time.Time, from int, size int) ([]EventJson, error) {
+func (store *Store) List(targetTime time.Time, from int, size int) ([]CompressedEvent, error) {
 	ts := now().Format("200601021504")
 	file, err := fs.OpenFile(
 		path.Join(store.RootDir, ts), os.O_RDONLY, 0)
@@ -52,20 +69,23 @@ func (store *Store) List(targetTime time.Time, from int, size int) ([]EventJson,
 		return nil, err
 	}
 	var lenBytes [4]byte
-	var events []EventJson
+	var events []CompressedEvent
 	for i := 0; i < size; i++ {
 		_, err = io.ReadFull(file, lenBytes[:])
 		if err != nil {
 			return nil, err
 		}
-		eventLen := binary.LittleEndian.Uint32(lenBytes[:])
-		event := make([]byte, eventLen)
-		_, err = io.ReadFull(file, event)
+		compressedEventSize := binary.LittleEndian.Uint32(lenBytes[:])
+		compressedEvent := make([]byte, compressedEventSize)
+		_, err = io.ReadFull(file, compressedEvent)
 		if err != nil {
 			return nil, err
 		}
 		if i >= from {
-			events = append(events, event)
+			events = append(events, CompressedEvent{
+				OriginalSize: binary.LittleEndian.Uint32(compressedEvent),
+				Data:         compressedEvent[4:],
+			})
 		}
 	}
 	return events, nil
