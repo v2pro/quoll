@@ -2,11 +2,15 @@ package main
 
 import (
 	"net/http"
-	"github.com/v2pro/quoll/event"
 	"io/ioutil"
 	"encoding/json"
 	"github.com/v2pro/koala/countlog"
+	"github.com/v2pro/quoll/evtstore"
 )
+
+var store = &evtstore.Store{
+	RootDir: "/tmp",
+}
 
 func main() {
 	http.HandleFunc("/add-event", func(respWriter http.ResponseWriter, req *http.Request) {
@@ -15,7 +19,7 @@ func main() {
 			writeError(respWriter, err)
 			return
 		}
-		err = event.Add(req.URL.Query().Get("event_type"), eventJson)
+		err = store.Add(eventJson)
 		if err != nil {
 			writeError(respWriter, err)
 			return
