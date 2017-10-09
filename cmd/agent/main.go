@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"io/ioutil"
 	"encoding/json"
-	"github.com/v2pro/koala/countlog"
+	"github.com/v2pro/plz/countlog"
 	"github.com/v2pro/quoll/evtstore"
 )
 
