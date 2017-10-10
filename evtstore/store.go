@@ -174,6 +174,13 @@ func (store *Store) switchFile(ts time.Time) error {
 		if err != nil {
 			return err
 		}
+	} else {
+		header := []byte{0xD1, 0xD1, 1, 0, 0, 0, 0}
+		binary.LittleEndian.PutUint32(header[3:7], uint32(store.currentTime.Unix()))
+		_, err = file.Write(header)
+		if err != nil {
+			return err
+		}
 	}
 	file.Seek(0, io.SeekEnd)
 	store.currentFile = file
