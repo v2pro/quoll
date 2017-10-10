@@ -16,6 +16,7 @@ import (
 
 const blockEntriesCountLimit = math.MaxUint16 - 1
 const blockSizeLimit = 1024 * 1024 // byte
+const maximumFlushInterval = 1 * time.Second
 
 type EventBody []byte
 type evtInput struct {
@@ -23,10 +24,6 @@ type evtInput struct {
 	eventBody EventBody
 }
 type evtEntry []byte // size(4byte)|timestamp(4byte)|body
-
-func (entry evtEntry) Timestamp() uint64 {
-	return binary.LittleEndian.Uint64(entry[4:])
-}
 
 type evtBlock []byte // compressedSize(4byte)|uncompressedSize(4byte)|count(2byte)|minTimestamp(4byte)|maxTimestamp(4byte)|body
 
@@ -57,6 +54,7 @@ func (store *Store) Start() {
 	go func() {
 		for {
 			store.flushInputQueue()
+			time.Sleep(maximumFlushInterval)
 		}
 	}()
 }
