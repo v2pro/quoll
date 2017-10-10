@@ -40,6 +40,7 @@ type Store struct {
 	compressionBuf []byte
 	currentFile    vfs.File
 	currentTime    time.Time
+	currentWindow  int64
 }
 
 func NewStore(rootDir string) *Store {
@@ -67,20 +68,30 @@ func (store *Store) flushInputQueue() error {
 				"stacktrace", countlog.ProvideStacktrace)
 		}
 	}()
-	if store.currentFile == nil {
-		if err := store.openFile(); err != nil {
-			return err
-		}
-	}
 	tmpBuf := [4]byte{}
+	blockBody := []byte{}
 	for {
 		entriesCount := uint16(0)
-		blockBody := []byte{}
+		blockBody = blockBody[:0]
 		minCTS := uint32(math.MaxUint32)
 		maxCTS := uint32(0)
 		for {
 			select {
 			case input := <-store.inputQueue:
+				if input.eventTS.Sub(store.currentTime) > time.Hour && len(blockBody) > 0 {
+					err := store.saveBlock(entriesCount, minCTS, maxCTS, blockBody)
+					if err != nil {
+						countlog.Error("event!failed to save block", "err", err)
+						return err
+					}
+					entriesCount = uint16(0)
+					blockBody = blockBody[:0]
+					minCTS = uint32(math.MaxUint32)
+					maxCTS = uint32(0)
+				}
+				if err := store.switchFile(input.eventTS); err != nil {
+					return err
+				}
 				eventCTS := timeutil.Compress(store.currentTime, input.eventTS)
 				if eventCTS > maxCTS {
 					maxCTS = eventCTS
@@ -119,7 +130,6 @@ func (store *Store) flushInputQueue() error {
 }
 
 func (store *Store) saveBlock(entriesCount uint16, minCTS, maxCTS uint32, blockBody []byte) error {
-
 	file := store.currentFile
 	var blockHeader [18]byte
 	bound := lz4.CompressBound(len(blockBody))
@@ -143,15 +153,24 @@ func (store *Store) saveBlock(entriesCount uint16, minCTS, maxCTS uint32, blockB
 	return nil
 }
 
-func (store *Store) openFile() error {
-	now := timeutil.Now()
-	store.currentTime = time.Unix((now.Unix() / 3600) * 3600, 0)
-	ts := store.currentTime.Format("200601021504")
+func (store *Store) switchFile(ts time.Time) error {
+	window := ts.Unix() / 3600
+	if window == store.currentWindow {
+		return nil
+	}
+	if store.currentFile != nil {
+		if err := store.currentFile.Close(); err != nil {
+			return err
+		}
+	}
+	store.currentWindow = window
+	store.currentTime = time.Unix(window* 3600, 0)
+	fileName := store.currentTime.Format("200601021504")
 	file, err := fs.OpenFile(
-		path.Join(store.RootDir, ts), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		path.Join(store.RootDir, fileName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
 		file, err = fs.OpenFile(
-			path.Join(store.RootDir, ts), os.O_WRONLY|os.O_APPEND, 0666)
+			path.Join(store.RootDir, fileName), os.O_WRONLY|os.O_APPEND, 0666)
 		if err != nil {
 			return err
 		}
