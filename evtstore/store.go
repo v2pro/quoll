@@ -14,9 +14,19 @@ import (
 	"github.com/v2pro/quoll/timeutil"
 )
 
-const blockEntriesCountLimit = math.MaxUint16 - 1
-const blockSizeLimit = 1024 * 1024 // byte
-const maximumFlushInterval = 1 * time.Second
+type Config struct {
+	BlockEntriesCountLimit uint16
+	BlockSizeLimit         int
+	MaximumFlushInterval   time.Duration
+	KeepFilesCount         int
+}
+
+var defaultConfig = Config{
+	BlockEntriesCountLimit: math.MaxUint16 - 1,
+	BlockSizeLimit:         1024 * 1024, // byte
+	MaximumFlushInterval:   1 * time.Second,
+	KeepFilesCount:         24,
+}
 
 type EventBody []byte
 type evtInput struct {
@@ -35,6 +45,7 @@ type CompressedEvent struct {
 var fs vfs.Filesystem = vfs.OS()
 
 type Store struct {
+	Config         Config
 	RootDir        string
 	inputQueue     chan evtInput
 	compressionBuf []byte
@@ -45,6 +56,7 @@ type Store struct {
 
 func NewStore(rootDir string) *Store {
 	return &Store{
+		Config:         defaultConfig,
 		RootDir:        rootDir,
 		inputQueue:     make(chan evtInput, 100),
 		compressionBuf: make([]byte, 1024),
@@ -55,12 +67,39 @@ func (store *Store) Start() {
 	go func() {
 		for {
 			store.flushInputQueue()
-			time.Sleep(maximumFlushInterval)
+			store.clean()
+			time.Sleep(store.Config.MaximumFlushInterval)
 		}
 	}()
 }
 
-func (store *Store) flushInputQueue() error {
+func (store *Store) clean() {
+	defer func() {
+		recovered := recover()
+		if recovered != nil {
+			countlog.Fatal("event!store.clean.panic", "err", recovered,
+				"stacktrace", countlog.ProvideStacktrace)
+		}
+	}()
+	files, err := fs.ReadDir(store.RootDir)
+	if err != nil {
+		countlog.Error("event!failed to read dir", "err", err, "rootDir", store.RootDir)
+		return
+	}
+	if len(files) > store.Config.KeepFilesCount {
+		for _, file := range files[:len(files)-store.Config.KeepFilesCount] {
+			filePath := path.Join(store.RootDir, file.Name())
+			err := fs.Remove(filePath)
+			if err != nil {
+				countlog.Error("event!failed to clean old file", "err", err, "filePath", filePath)
+			} else {
+				countlog.Info("event!cleaned_old_file", "filePath", filePath)
+			}
+		}
+	}
+}
+
+func (store *Store) flushInputQueue() {
 	defer func() {
 		recovered := recover()
 		if recovered != nil {
@@ -82,7 +121,7 @@ func (store *Store) flushInputQueue() error {
 					err := store.saveBlock(entriesCount, minCTS, maxCTS, blockBody)
 					if err != nil {
 						countlog.Error("event!failed to save block", "err", err)
-						return err
+						return
 					}
 					entriesCount = uint16(0)
 					blockBody = blockBody[:0]
@@ -90,7 +129,8 @@ func (store *Store) flushInputQueue() error {
 					maxCTS = uint32(0)
 				}
 				if err := store.switchFile(input.eventTS); err != nil {
-					return err
+					countlog.Error("event!failed to switch file", "err", err)
+					return
 				}
 				eventCTS := timeutil.Compress(store.currentTime, input.eventTS)
 				if eventCTS > maxCTS {
@@ -105,10 +145,10 @@ func (store *Store) flushInputQueue() error {
 				binary.LittleEndian.PutUint32(tmpBuf[:], eventCTS)
 				blockBody = append(blockBody, tmpBuf[:]...)
 				blockBody = append(blockBody, input.eventBody...)
-				if entriesCount > blockEntriesCountLimit {
+				if entriesCount > store.Config.BlockEntriesCountLimit {
 					break
 				}
-				if len(blockBody) > blockSizeLimit {
+				if len(blockBody) > store.Config.BlockSizeLimit {
 					break
 				}
 				continue
@@ -116,17 +156,16 @@ func (store *Store) flushInputQueue() error {
 				if len(blockBody) > 0 {
 					break
 				}
-				return nil
+				return
 			}
 			break
 		}
 		err := store.saveBlock(entriesCount, minCTS, maxCTS, blockBody)
 		if err != nil {
 			countlog.Error("event!failed to save block", "err", err)
-			return err
+			return
 		}
 	}
-	return nil
 }
 
 func (store *Store) saveBlock(entriesCount uint16, minCTS, maxCTS uint32, blockBody []byte) error {
@@ -164,7 +203,7 @@ func (store *Store) switchFile(ts time.Time) error {
 		}
 	}
 	store.currentWindow = window
-	store.currentTime = time.Unix(window* 3600, 0)
+	store.currentTime = time.Unix(window*3600, 0)
 	fileName := store.currentTime.Format("200601021504")
 	file, err := fs.OpenFile(
 		path.Join(store.RootDir, fileName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
@@ -191,7 +230,7 @@ func (store *Store) Add(eventBody EventBody) error {
 	select {
 	case store.inputQueue <- evtInput{
 		eventBody: eventBody,
-		eventTS:  timeutil.Now(),
+		eventTS:   timeutil.Now(),
 	}:
 		return nil
 	default:
