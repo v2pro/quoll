@@ -12,7 +12,13 @@ import (
 	"math"
 	"github.com/v2pro/quoll/lz4"
 	"github.com/v2pro/quoll/timeutil"
+	"bytes"
 )
+
+const fileHeaderSize = 7
+const blockHeaderSize = 18
+const blockIdSize = 16
+const entryHeaderSize = 8
 
 type Config struct {
 	BlockEntriesCountLimit uint16
@@ -29,17 +35,79 @@ var defaultConfig = Config{
 }
 
 type EventBody []byte
+
 type evtInput struct {
 	eventTS   time.Time
 	eventBody EventBody
 }
-type evtEntry []byte // size(4byte)|timestamp(4byte)|body
 
-type evtBlock []byte // compressedSize(4byte)|uncompressedSize(4byte)|count(2byte)|minTimestamp(4byte)|maxTimestamp(4byte)|body
+type EventEntry []byte // size(4byte)|timestamp(4byte)|body
 
-type CompressedEvent struct {
-	OriginalSize uint32
-	Data         []byte
+func (entry EventEntry) EventCTS() uint32 {
+	return binary.LittleEndian.Uint32(entry[4:])
+}
+func (entry EventEntry) EventBody() EventBody {
+	return EventBody(entry[8:])
+}
+
+type CompressedEventEntries []byte
+type EventEntries []byte
+
+func (entries EventEntries) Next() (EventEntry, EventEntries) {
+	if len(entries) < entryHeaderSize {
+		panic("no more entry")
+	}
+	size := binary.LittleEndian.Uint32(entries)
+	return EventEntry(entries[:size+entryHeaderSize]), entries[size+entryHeaderSize:]
+}
+
+type EventBlocks []byte // EventBlockId|EventBlock|EventBlockId|EventBlock|...
+
+func (blocks EventBlocks) Next() (EventBlockId, EventBlock, EventBlocks) {
+	if len(blocks) < blockIdSize {
+		panic("no more block")
+	}
+	blockId := EventBlockId(blocks[:blockIdSize])
+	blockHeader := EventBlock(blocks[blockIdSize:blockIdSize+blockHeaderSize])
+	next := blockIdSize + blockHeaderSize + blockHeader.CompressedSize()
+	block := EventBlock(blocks[blockIdSize:next])
+	return blockId, block, blocks[next:]
+}
+
+type EventBlockId []byte // filename(12byte)|indexWithinFile(4byte)
+
+func (blockId EventBlockId) FileName() string {
+	return string(blockId[:12])
+}
+
+func (blockId EventBlockId) IndexWithinFile() uint32 {
+	return binary.LittleEndian.Uint32(blockId[12:])
+}
+
+type EventBlock []byte // compressedSize(4byte)|uncompressedSize(4byte)|count(2byte)|minTimestamp(4byte)|maxTimestamp(4byte)|body
+
+func (blk EventBlock) CompressedSize() uint32 {
+	return binary.LittleEndian.Uint32(blk)
+}
+func (blk EventBlock) UncompressedSize() uint32 {
+	return binary.LittleEndian.Uint32(blk[4:])
+}
+func (blk EventBlock) EntriesCount() uint16 {
+	return binary.LittleEndian.Uint16(blk[8:])
+}
+func (blk EventBlock) MinCTS() uint32 {
+	return binary.LittleEndian.Uint32(blk[10:])
+}
+func (blk EventBlock) MaxCTS() uint32 {
+	return binary.LittleEndian.Uint32(blk[14:])
+}
+func (blk EventBlock) CompressedEventEntries() CompressedEventEntries {
+	return CompressedEventEntries(blk[18:])
+}
+func (blk EventBlock) EventEntries() EventEntries {
+	entries := make([]byte, blk.UncompressedSize())
+	lz4.DecompressSafe(blk.CompressedEventEntries(), entries)
+	return EventEntries(entries)
 }
 
 var fs vfs.Filesystem = vfs.OS()
@@ -170,17 +238,17 @@ func (store *Store) flushInputQueue() {
 
 func (store *Store) saveBlock(entriesCount uint16, minCTS, maxCTS uint32, blockBody []byte) error {
 	file := store.currentFile
-	var blockHeader [18]byte
+	var blockHeader [blockHeaderSize]byte
 	bound := lz4.CompressBound(len(blockBody))
 	if len(store.compressionBuf) < bound {
 		store.compressionBuf = make([]byte, bound)
 	}
 	compressedSize := lz4.CompressDefault(blockBody, store.compressionBuf)
-	binary.LittleEndian.PutUint32(blockHeader[0:4], uint32(compressedSize+len(blockHeader)))
+	binary.LittleEndian.PutUint32(blockHeader[0:4], uint32(compressedSize))
 	binary.LittleEndian.PutUint32(blockHeader[4:8], uint32(len(blockBody)))
 	binary.LittleEndian.PutUint16(blockHeader[8:10], uint16(entriesCount))
 	binary.LittleEndian.PutUint32(blockHeader[10:14], minCTS)
-	binary.LittleEndian.PutUint32(blockHeader[14:18], maxCTS)
+	binary.LittleEndian.PutUint32(blockHeader[14:blockHeaderSize], maxCTS)
 	_, err := file.Write(blockHeader[:])
 	if err != nil {
 		return err
@@ -214,9 +282,9 @@ func (store *Store) switchFile(ts time.Time) error {
 			return err
 		}
 	} else {
-		header := []byte{0xD1, 0xD1, 1, 0, 0, 0, 0}
+		header := [fileHeaderSize]byte{0xD1, 0xD1, 1, 0, 0, 0, 0}
 		binary.LittleEndian.PutUint32(header[3:7], uint32(store.currentTime.Unix()))
-		_, err = file.Write(header)
+		_, err = file.Write(header[:])
 		if err != nil {
 			return err
 		}
@@ -238,32 +306,51 @@ func (store *Store) Add(eventBody EventBody) error {
 	}
 }
 
-func (store *Store) List(targetTime time.Time, from int, size int) ([]CompressedEvent, error) {
-	ts := timeutil.Now().Format("200601021504")
-	file, err := fs.OpenFile(
-		path.Join(store.RootDir, ts), os.O_RDONLY, 0)
+func (store *Store) List(startTime time.Time, endTime time.Time, skip int, limit int) (EventBlocks, error) {
+	files, err := fs.ReadDir(store.RootDir)
 	if err != nil {
 		return nil, err
 	}
-	var lenBytes [4]byte
-	var events []CompressedEvent
-	for i := 0; i < size; i++ {
-		_, err = io.ReadFull(file, lenBytes[:])
+	eventBlocks := bytes.NewBuffer(nil)
+	var headerBuf = [blockHeaderSize]byte{}
+	var header EventBlock = headerBuf[:]
+	readEntriesCount := 0
+	for _, fileInfo := range files {
+		blockIdTmpl := []byte(fileInfo.Name())
+		blockIdTmpl = append(blockIdTmpl, []byte{0, 0, 0, 0}...)
+		file, err := fs.OpenFile(path.Join(store.RootDir, fileInfo.Name()), os.O_RDONLY, 0)
 		if err != nil {
 			return nil, err
 		}
-		compressedEventSize := binary.LittleEndian.Uint32(lenBytes[:])
-		compressedEvent := make([]byte, compressedEventSize)
-		_, err = io.ReadFull(file, compressedEvent)
-		if err != nil {
-			return nil, err
-		}
-		if i >= from {
-			events = append(events, CompressedEvent{
-				OriginalSize: binary.LittleEndian.Uint32(compressedEvent),
-				Data:         compressedEvent[4:],
-			})
+		file.Seek(fileHeaderSize, io.SeekStart)
+		index := 0
+		for {
+			_, err = io.ReadFull(file, header)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+			binary.LittleEndian.PutUint32(blockIdTmpl[12:], uint32(index))
+			_, err = eventBlocks.Write(blockIdTmpl)
+			if err != nil {
+				return nil, err
+			}
+			_, err = eventBlocks.Write(header)
+			if err != nil {
+				return nil, err
+			}
+			_, err = io.CopyN(eventBlocks, file, int64(header.CompressedSize()))
+			if err != nil {
+				return nil, err
+			}
+			readEntriesCount += int(header.EntriesCount())
+			if readEntriesCount > limit {
+				return EventBlocks(eventBlocks.Bytes()), nil
+			}
+			index++
 		}
 	}
-	return events, nil
+	return EventBlocks(eventBlocks.Bytes()), nil
 }

@@ -11,11 +11,11 @@ func Compress(base time.Time, now time.Time) uint32 {
 	if duration < 0 {
 		panic(fmt.Sprintf("can not compress timestamp: %s < %v", now, base))
 	}
-	asMilli := duration >> 10
-	if asMilli > math.MaxUint32 {
+	compressed := duration >> 10
+	if compressed > math.MaxUint32 {
 		panic(fmt.Sprintf("can not compress timestamp: %v is too large", duration))
 	}
-	return uint32(asMilli)
+	return uint32(compressed)
 }
 
 func Uncompress(base time.Time, compressed uint32) time.Time {
