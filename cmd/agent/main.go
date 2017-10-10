@@ -8,11 +8,10 @@ import (
 	"github.com/v2pro/quoll/evtstore"
 )
 
-var store = &evtstore.Store{
-	RootDir: "/tmp",
-}
+var store = evtstore.NewStore("/tmp")
 
 func main() {
+	store.Start()
 	http.HandleFunc("/add-event", func(respWriter http.ResponseWriter, req *http.Request) {
 		eventJson, err := ioutil.ReadAll(req.Body)
 		if err != nil {
