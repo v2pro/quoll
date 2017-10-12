@@ -112,9 +112,12 @@ func (blk EventBlock) EventEntries() EventEntries {
 
 var fs vfs.Filesystem = vfs.OS()
 
+type EventMangler func(eventBody EventBody) EventBody
+
 type Store struct {
 	Config         Config
 	RootDir        string
+	EventMangler   EventMangler
 	inputQueue     chan evtInput
 	compressionBuf []byte
 	currentFile    vfs.File
@@ -185,6 +188,10 @@ func (store *Store) flushInputQueue() {
 		for {
 			select {
 			case input := <-store.inputQueue:
+				input.eventBody = store.EventMangler(input.eventBody)
+				if input.eventBody == nil {
+					continue
+				}
 				if input.eventTS.Sub(store.currentTime) > time.Hour && len(blockBody) > 0 {
 					err := store.saveBlock(entriesCount, minCTS, maxCTS, blockBody)
 					if err != nil {

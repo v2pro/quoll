@@ -1,4 +1,4 @@
-package rfe
+package scene
 
 import (
 	"testing"
