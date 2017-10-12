@@ -4,36 +4,36 @@ import (
 	"github.com/v2pro/quoll/evtstore"
 	"github.com/v2pro/gohs/hyperscan"
 	"github.com/json-iterator/go"
-	"github.com/v2pro/plz/countlog"
 	"bytes"
 	"errors"
+	"github.com/v2pro/plz/countlog"
 )
 
 var sessionMatchers = map[string]*sessionMatcher{}
 
 type sessionMatcher struct {
-	sessionType string // url
-	callOutbounds map[string]*callOutboundMatcher
-	inboundRequestHbd hyperscan.BlockDatabase
+	sessionType        string // url
+	callOutbounds      map[string]*callOutboundMatcher
+	inboundRequestHbd  hyperscan.BlockDatabase
 	inboundResponseHbd hyperscan.BlockDatabase
 }
 
 type callOutboundMatcher struct {
 	serviceName string
-	requestHbd hyperscan.BlockDatabase
+	requestHbd  hyperscan.BlockDatabase
 	responseHbd hyperscan.BlockDatabase
 }
 
 type SessionMatcherCnf struct {
-	SessionType string
-	InboundRequestPatterns []string
+	SessionType             string
+	InboundRequestPatterns  []string
 	InboundResponsePatterns []string
-	CallOutbounds []CallOutboundMatcherCnf
+	CallOutbounds           []CallOutboundMatcherCnf
 }
 
 type CallOutboundMatcherCnf struct {
-	ServiceName string
-	RequestPatterns []string
+	ServiceName      string
+	RequestPatterns  []string
 	ResponsePatterns []string
 }
 
@@ -50,7 +50,7 @@ func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
 		}
 		callOutbounds[callOutbound.ServiceName] = &callOutboundMatcher{
 			serviceName: callOutbound.ServiceName,
-			requestHbd: requestHbd,
+			requestHbd:  requestHbd,
 			responseHbd: responseHbd,
 		}
 	}
@@ -63,9 +63,9 @@ func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
 		return err
 	}
 	sessionMatcher := &sessionMatcher{
-		sessionType: cnf.SessionType,
-		callOutbounds: callOutbounds,
-		inboundRequestHbd: inboundRequestHbd,
+		sessionType:        cnf.SessionType,
+		callOutbounds:      callOutbounds,
+		inboundRequestHbd:  inboundRequestHbd,
 		inboundResponseHbd: inboundResponseHbd,
 	}
 	sessionMatchers[cnf.SessionType] = sessionMatcher
@@ -87,11 +87,10 @@ func createHbd(patterns []string) (hyperscan.BlockDatabase, error) {
 func DiscriminateFeature(eventBody evtstore.EventBody) evtstore.EventBody {
 	iter := jsoniter.ConfigFastest.BorrowIterator(eventBody)
 	defer jsoniter.ConfigFastest.ReturnIterator(iter)
-	collector := &featureCollector{}
-	collector.colSession(iter)
-	mangled := bytes.NewBuffer(make([]byte, 0, len(eventBody)))
-	if err := mangled.WriteByte('['); err != nil {
-		countlog.Error("event!failed to write", "err", err)
+	collector := &featureCollector{iter: iter}
+	collector.colSession()
+	if iter.Error != nil {
+		countlog.Error("event!failed to parse session", "err", iter.Error)
 		return nil
 	}
 	stream := jsoniter.ConfigFastest.BorrowStream(nil)
@@ -104,21 +103,24 @@ func DiscriminateFeature(eventBody evtstore.EventBody) evtstore.EventBody {
 	return stream.Buffer()
 }
 
-var sessionTypeStart = []byte(`\\x0bQREQUEST_URI`)
-var sessionTypeEnd = []byte(`\\x`)
+var sessionTypeStart = []byte(`\x0bQREQUEST_URI`)
+var sessionTypeEnd = []byte(`\x`)
 
 type featureCollector struct {
-	feature []string
+	iter           *jsoniter.Iterator
+	feature        []string
+	sessionMatcher *sessionMatcher
 }
 
-func (collector *featureCollector) colSession(iter *jsoniter.Iterator) {
-	var sessionMatcher *sessionMatcher
-	iter.ReadObjectCB(func(iter *jsoniter.Iterator, field string) bool {
+func (collector *featureCollector) colSession() {
+	collector.iter.ReadObjectCB(func(iter *jsoniter.Iterator, field string) bool {
 		switch field {
 		case "CallFromInbound":
-			sessionMatcher = collector.colCallFromInbound(iter)
+			collector.sessionMatcher = collector.colCallFromInbound()
 		case "ReturnInbound":
-			collector.colReturnInbound(iter, sessionMatcher.inboundResponseHbd)
+			collector.colReturnInbound()
+		case "Actions":
+			collector.colActions()
 		default:
 			iter.Skip()
 		}
@@ -126,17 +128,17 @@ func (collector *featureCollector) colSession(iter *jsoniter.Iterator) {
 	})
 }
 
-func (collector *featureCollector) colCallFromInbound(iter *jsoniter.Iterator) (sessionMatcher *sessionMatcher) {
-	iter.ReadObjectCB(func(iter *jsoniter.Iterator, field string) bool {
+func (collector *featureCollector) colCallFromInbound() (sessionMatcher *sessionMatcher) {
+	collector.iter.ReadObjectCB(func(iter *jsoniter.Iterator, field string) bool {
 		switch field {
 		case "Request":
-			req := iter.ReadStringAsSlice()
+			req := []byte(iter.ReadString())
 			startPos := bytes.Index(req, sessionTypeStart)
 			if startPos == -1 {
 				iter.Error = errors.New("session type start can not be found")
 				return true
 			}
-			partialReq := req[startPos + len(sessionTypeStart):]
+			partialReq := req[startPos+len(sessionTypeStart):]
 			endPos := bytes.Index(partialReq, sessionTypeEnd)
 			if endPos == -1 {
 				iter.Error = errors.New("session type end can not be found")
@@ -144,11 +146,8 @@ func (collector *featureCollector) colCallFromInbound(iter *jsoniter.Iterator) (
 			}
 			sessionType := string(partialReq[:endPos])
 			sessionMatcher = sessionMatchers[sessionType]
-			if sessionMatcher != nil && sessionMatcher.inboundRequestHbd != nil {
-				feature := sessionMatcher.inboundRequestHbd.FindAll(req, -1)
-				for _, featureItem := range feature {
-					collector.feature = append(collector.feature, string(featureItem))
-				}
+			if sessionMatcher != nil {
+				collector.matchFeature(req, sessionMatcher.inboundRequestHbd)
 			}
 		default:
 			iter.Skip()
@@ -158,20 +157,56 @@ func (collector *featureCollector) colCallFromInbound(iter *jsoniter.Iterator) (
 	return
 }
 
-func (collector *featureCollector) colReturnInbound(iter *jsoniter.Iterator, inboundResponseHbd hyperscan.BlockDatabase) {
-	iter.ReadObjectCB(func (iter *jsoniter.Iterator, field string) bool {
+func (collector *featureCollector) colReturnInbound() {
+	collector.iter.ReadObjectCB(func(iter *jsoniter.Iterator, field string) bool {
 		switch field {
 		case "Response":
-			resp := iter.ReadStringAsSlice()
-			if inboundResponseHbd != nil {
-				feature := inboundResponseHbd.FindAll(resp, -1)
-				for _, featureItem := range feature {
-					collector.feature = append(collector.feature, string(featureItem))
-				}
+			resp := []byte(iter.ReadString())
+			if collector.sessionMatcher != nil {
+				collector.matchFeature(resp, collector.sessionMatcher.inboundResponseHbd)
 			}
 		default:
 			iter.Skip()
 		}
 		return true
 	})
+}
+
+func (collector *featureCollector) colActions() {
+	collector.iter.ReadArrayCB(func(iter *jsoniter.Iterator) bool {
+		var callOutboundMatcher *callOutboundMatcher
+		iter.ReadObjectCB(func(iter *jsoniter.Iterator, field string) bool {
+			switch field {
+			case "ServiceName":
+				serviceName := iter.ReadString()
+				if collector.sessionMatcher != nil {
+					callOutboundMatcher = collector.sessionMatcher.callOutbounds[serviceName]
+				}
+			case "Request":
+				req := []byte(iter.ReadString())
+				if callOutboundMatcher != nil {
+					collector.matchFeature(req, callOutboundMatcher.requestHbd)
+				}
+			case "Response":
+				resp := []byte(iter.ReadString())
+				if callOutboundMatcher != nil {
+					collector.matchFeature(resp, callOutboundMatcher.responseHbd)
+				}
+			default:
+				iter.Skip()
+			}
+			return true
+		})
+		return true
+	})
+}
+
+func (collector *featureCollector) matchFeature(bytes []byte, hbd hyperscan.BlockDatabase) {
+	if hbd == nil {
+		return
+	}
+	feature := hbd.FindAll(bytes, -1)
+	for _, featureItem := range feature {
+		collector.feature = append(collector.feature, string(featureItem))
+	}
 }
