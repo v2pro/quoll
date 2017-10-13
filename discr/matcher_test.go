@@ -1,4 +1,4 @@
-package scene
+package discr
 
 import (
 	"testing"
@@ -10,12 +10,12 @@ func Test_end_to_end(t *testing.T) {
 	err := UpdateSessionMatcher(SessionMatcherCnf{
 		SessionType: "/test",
 		InboundRequestPatterns: []string{"xxx"},
-		InboundResponsePatterns: []string{`product_id=\d+`,`combo_type=\d+`},
+		InboundResponsePatterns: []string{`product_id=(\d+)`,`combo_type=(\d+)`},
 		CallOutbounds: []CallOutboundMatcherCnf{
 			{
 				ServiceName: "passport",
-				RequestPatterns: []string{`"user_role":\s*"\w+"`},
-				ResponsePatterns: []string{`"user_type":\s*"\w+"`},
+				RequestPatterns: []string{`"user_role":\s*"(\w+)"`},
+				ResponsePatterns: []string{`"user_type":\s*"(\w+)"`},
 			},
 		},
 	})
@@ -36,7 +36,6 @@ func Test_end_to_end(t *testing.T) {
 		}
 	]
 }`
-	mangled := DiscriminateFeature([]byte(session))
-	should.Equal(`[["product_id=3","combo_type=1","\"user_role\":\"driver\"","\"user_type\":\"normal\""],` +
-		session + `]`, string(mangled))
+	feature := DiscriminateFeature([]byte(session))
+	should.Equal(Scene{}.appendFeature([]byte("product_id"), []byte("3")), feature)
 }

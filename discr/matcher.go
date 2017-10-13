@@ -1,4 +1,4 @@
-package scene
+package discr
 
 import (
 	"github.com/v2pro/quoll/evtstore"
@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"errors"
 	"github.com/v2pro/plz/countlog"
+	"math"
+	"encoding/binary"
 )
 
 var sessionMatchers = map[string]*sessionMatcher{}
@@ -35,6 +37,25 @@ type CallOutboundMatcherCnf struct {
 	ServiceName      string
 	RequestPatterns  []string
 	ResponsePatterns []string
+}
+
+type Feature []byte
+type Scene []byte
+
+func (s Scene) appendFeature(key, value []byte) Scene {
+	if len(key) > math.MaxUint16 {
+		key = key[:math.MaxUint16]
+	}
+	if len(value) > math.MaxUint16 {
+		value = value[:math.MaxUint16]
+	}
+	s = append(s, []byte{0, 0}...)
+	binary.LittleEndian.PutUint16(s[len(s)-2:], uint16(len(key)))
+	s = append(s, key...)
+	s = append(s, []byte{0, 0}...)
+	binary.LittleEndian.PutUint16(s[len(s)-2:], uint16(len(key)))
+	s = append(s, value...)
+	return s
 }
 
 func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
@@ -84,7 +105,7 @@ func createHbd(patterns []string) (hyperscan.BlockDatabase, error) {
 	return hyperscan.NewBlockDatabase(compiledPatterns...)
 }
 
-func DiscriminateFeature(eventBody evtstore.EventBody) evtstore.EventBody {
+func DiscriminateFeature(eventBody evtstore.EventBody) Feature {
 	iter := jsoniter.ConfigFastest.BorrowIterator(eventBody)
 	defer jsoniter.ConfigFastest.ReturnIterator(iter)
 	collector := &featureCollector{iter: iter}
@@ -93,14 +114,7 @@ func DiscriminateFeature(eventBody evtstore.EventBody) evtstore.EventBody {
 		countlog.Error("event!failed to parse session", "err", iter.Error)
 		return nil
 	}
-	stream := jsoniter.ConfigFastest.BorrowStream(nil)
-	defer jsoniter.ConfigFastest.ReturnStream(stream)
-	stream.WriteArrayStart()
-	stream.WriteVal(collector.feature)
-	stream.WriteMore()
-	stream.Write(eventBody)
-	stream.WriteArrayEnd()
-	return stream.Buffer()
+	return nil
 }
 
 var sessionTypeStart = []byte(`\x0bQREQUEST_URI`)

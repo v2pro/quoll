@@ -1,4 +1,4 @@
-package scene
+package discr
 
 import (
 	"testing"
