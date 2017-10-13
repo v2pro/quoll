@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"github.com/v2pro/plz/countlog"
 	"github.com/v2pro/quoll/evtstore"
+	"github.com/v2pro/quoll/discr"
+	"github.com/json-iterator/go"
 )
 
 var store = evtstore.NewStore("/tmp")
@@ -21,6 +23,19 @@ func main() {
 		err = store.Add(eventJson)
 		if err != nil {
 			writeError(respWriter, err)
+			return
+		}
+		respWriter.Write([]byte(`{"errno":0}`))
+	})
+	http.HandleFunc("/update-session-matcher", func(respWriter http.ResponseWriter, req *http.Request) {
+		var cnf discr.SessionMatcherCnf
+		err := discr.UpdateSessionMatcher(cnf)
+		if err != nil {
+			encoder := jsoniter.NewEncoder(respWriter)
+			encoder.Encode(map[string]interface{}{
+				"errno": 1,
+				"errmsg": err.Error(),
+			})
 			return
 		}
 		respWriter.Write([]byte(`{"errno":0}`))
