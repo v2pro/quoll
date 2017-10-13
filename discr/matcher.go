@@ -1,7 +1,6 @@
 package discr
 
 import (
-	"github.com/v2pro/quoll/evtstore"
 	"github.com/json-iterator/go"
 	"bytes"
 	"errors"
@@ -9,6 +8,8 @@ import (
 	"math"
 	"encoding/binary"
 )
+
+type EventBody []byte
 
 var sessionMatchers = map[string]*sessionMatcher{}
 
@@ -101,7 +102,7 @@ type DeduplicationState struct {
 
 type sessionTypeDS map[string]int
 
-func (ds *DeduplicationState) SceneOf(eventBody evtstore.EventBody) Scene {
+func (ds *DeduplicationState) SceneOf(eventBody EventBody) Scene {
 	iter := jsoniter.ConfigFastest.BorrowIterator(eventBody)
 	defer jsoniter.ConfigFastest.ReturnIterator(iter)
 	collector := &featureCollector{iter: iter}

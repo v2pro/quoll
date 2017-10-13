@@ -13,6 +13,7 @@ import (
 	"github.com/v2pro/quoll/lz4"
 	"github.com/v2pro/quoll/timeutil"
 	"bytes"
+	"github.com/v2pro/quoll/discr"
 )
 
 const fileHeaderSize = 7
@@ -34,11 +35,9 @@ var defaultConfig = Config{
 	KeepFilesCount:         24,
 }
 
-type EventBody []byte
-
 type evtInput struct {
 	eventTS   time.Time
-	eventBody EventBody
+	eventBody discr.EventBody
 }
 
 type EventEntry []byte // size(4byte)|timestamp(4byte)|body
@@ -46,8 +45,8 @@ type EventEntry []byte // size(4byte)|timestamp(4byte)|body
 func (entry EventEntry) EventCTS() uint32 {
 	return binary.LittleEndian.Uint32(entry[4:])
 }
-func (entry EventEntry) EventBody() EventBody {
-	return EventBody(entry[8:])
+func (entry EventEntry) EventBody() discr.EventBody {
+	return discr.EventBody(entry[8:])
 }
 
 type CompressedEventEntries []byte
@@ -112,17 +111,15 @@ func (blk EventBlock) EventEntries() EventEntries {
 
 var fs vfs.Filesystem = vfs.OS()
 
-type EventMangler func(eventBody EventBody) EventBody
-
 type Store struct {
 	Config         Config
 	RootDir        string
-	EventMangler   EventMangler
 	inputQueue     chan evtInput
 	compressionBuf []byte
 	currentFile    vfs.File
 	currentTime    time.Time
 	currentWindow  int64
+	currentDs 	   *discr.DeduplicationState
 }
 
 func NewStore(rootDir string) *Store {
@@ -188,10 +185,6 @@ func (store *Store) flushInputQueue() {
 		for {
 			select {
 			case input := <-store.inputQueue:
-				input.eventBody = store.EventMangler(input.eventBody)
-				if input.eventBody == nil {
-					continue
-				}
 				if input.eventTS.Sub(store.currentTime) > time.Hour && len(blockBody) > 0 {
 					err := store.saveBlock(entriesCount, minCTS, maxCTS, blockBody)
 					if err != nil {
@@ -206,6 +199,10 @@ func (store *Store) flushInputQueue() {
 				if err := store.switchFile(input.eventTS); err != nil {
 					countlog.Error("event!failed to switch file", "err", err)
 					return
+				}
+				scene := store.currentDs.SceneOf(input.eventBody)
+				if scene == nil {
+					continue
 				}
 				eventCTS := timeutil.Compress(store.currentTime, input.eventTS)
 				if eventCTS > maxCTS {
@@ -272,6 +269,7 @@ func (store *Store) switchFile(ts time.Time) error {
 	if window == store.currentWindow {
 		return nil
 	}
+	store.currentDs = &discr.DeduplicationState{}
 	if store.currentFile != nil {
 		if err := store.currentFile.Close(); err != nil {
 			return err
@@ -301,7 +299,7 @@ func (store *Store) switchFile(ts time.Time) error {
 	return nil
 }
 
-func (store *Store) Add(eventBody EventBody) error {
+func (store *Store) Add(eventBody discr.EventBody) error {
 	select {
 	case store.inputQueue <- evtInput{
 		eventBody: eventBody,
