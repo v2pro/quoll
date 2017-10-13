@@ -3,6 +3,7 @@ package discr
 import (
 	"testing"
 	"github.com/stretchr/testify/require"
+	"regexp"
 )
 
 func Test_match(t *testing.T) {
@@ -18,4 +19,18 @@ func Test_match(t *testing.T) {
 	should.Equal(Scene{}.appendFeature(
 		[]byte("product_id"), []byte("1")).appendFeature(
 		[]byte("combo_type"), []byte("3")), scene)
+}
+
+func Benchmark_small_string(b *testing.B) {
+	p, err := regexp.Compile(`product_id=(\d+)`)
+	if err != nil {
+		b.Error(err)
+		return
+	}
+	input := []byte(`product_id=1`)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		p.FindSubmatch(input)
+	}
 }
