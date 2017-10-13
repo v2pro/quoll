@@ -8,14 +8,21 @@ import (
 func Test_end_to_end(t *testing.T) {
 	should := require.New(t)
 	err := UpdateSessionMatcher(SessionMatcherCnf{
-		SessionType: "/test",
-		InboundRequestPatterns: []string{"xxx"},
-		InboundResponsePatterns: []string{`product_id=(\d+)`,`combo_type=(\d+)`},
+		SessionType:            "/test",
+		InboundRequestPatterns: map[string]string{"xxx": "xxx"},
+		InboundResponsePatterns: map[string]string{
+			"product_id": `product_id=(\d+)`,
+			"combo_type": `combo_type=(\d+)`,
+		},
 		CallOutbounds: []CallOutboundMatcherCnf{
 			{
 				ServiceName: "passport",
-				RequestPatterns: []string{`"user_role":\s*"(\w+)"`},
-				ResponsePatterns: []string{`"user_type":\s*"(\w+)"`},
+				RequestPatterns: map[string]string{
+					"user_role": `"user_role":\s*"(\w+)"`,
+				},
+				ResponsePatterns: map[string]string{
+					"user_type": `"user_type":\s*"(\w+)"`,
+				},
 			},
 		},
 	})
@@ -37,5 +44,9 @@ func Test_end_to_end(t *testing.T) {
 	]
 }`
 	feature := DiscriminateFeature([]byte(session))
-	should.Equal(Scene{}.appendFeature([]byte("product_id"), []byte("3")), feature)
+	should.Equal(Scene{}.appendFeature(
+		[]byte("product_id"), []byte("3")).appendFeature(
+		[]byte("combo_type"), []byte("1")).appendFeature(
+		[]byte("user_role"), []byte("driver")).appendFeature(
+		[]byte("user_type"), []byte("normal")), feature)
 }
