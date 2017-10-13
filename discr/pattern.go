@@ -4,6 +4,7 @@ import (
 	"github.com/v2pro/gohs/hyperscan"
 	"regexp"
 	"github.com/v2pro/plz/countlog"
+	"unsafe"
 )
 
 type patternGroup struct {
@@ -20,6 +21,18 @@ type patternMatch struct {
 }
 
 type patternMatches []patternMatch
+
+func (pms patternMatches) toMapKey() string {
+	size := 0
+	for _, pm := range pms {
+		size += len(pm.match)
+	}
+	mapKey := make([]byte, 0, size)
+	for _, pm := range pms {
+		mapKey = append(mapKey, pm.match...)
+	}
+	return *(*string)(unsafe.Pointer(&mapKey))
+}
 
 func (pms patternMatches) ToScene() Scene {
 	var scene Scene

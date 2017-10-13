@@ -2,7 +2,6 @@ package discr
 
 import (
 	"github.com/v2pro/quoll/evtstore"
-	"github.com/v2pro/gohs/hyperscan"
 	"github.com/json-iterator/go"
 	"bytes"
 	"errors"
@@ -14,10 +13,11 @@ import (
 var sessionMatchers = map[string]*sessionMatcher{}
 
 type sessionMatcher struct {
-	sessionType       string // url
-	callOutbounds     map[string]*callOutboundMatcher
-	inboundRequestPg  *patternGroup
-	inboundResponsePg *patternGroup
+	sessionType           string // url
+	keepNSessionsPerScene int
+	callOutbounds         map[string]*callOutboundMatcher
+	inboundRequestPg      *patternGroup
+	inboundResponsePg     *patternGroup
 }
 
 type callOutboundMatcher struct {
@@ -28,6 +28,7 @@ type callOutboundMatcher struct {
 
 type SessionMatcherCnf struct {
 	SessionType             string
+	KeepNSessionsPerScene   int
 	InboundRequestPatterns  map[string]string
 	InboundResponsePatterns map[string]string
 	CallOutbounds           []CallOutboundMatcherCnf
@@ -85,6 +86,7 @@ func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
 	}
 	sessionMatcher := &sessionMatcher{
 		sessionType:       cnf.SessionType,
+		keepNSessionsPerScene: cnf.KeepNSessionsPerScene,
 		callOutbounds:     callOutbounds,
 		inboundRequestPg:  inboundRequestPg,
 		inboundResponsePg: inboundResponsePg,
@@ -93,25 +95,38 @@ func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
 	return nil
 }
 
-func createHbd(patterns []string) (hyperscan.BlockDatabase, error) {
-	if len(patterns) == 0 {
-		return nil, nil
-	}
-	compiledPatterns := []*hyperscan.Pattern{}
-	for _, pattern := range patterns {
-		compiledPatterns = append(compiledPatterns, hyperscan.NewPattern(
-			pattern, hyperscan.DotAll|hyperscan.SomLeftMost))
-	}
-	return hyperscan.NewBlockDatabase(compiledPatterns...)
+type DeduplicationState struct {
+	sessionTypes map[string]sessionTypeDS
 }
 
-func DiscriminateFeature(eventBody evtstore.EventBody) Scene {
+type sessionTypeDS map[string]int
+
+func (ds *DeduplicationState) SceneOf(eventBody evtstore.EventBody) Scene {
 	iter := jsoniter.ConfigFastest.BorrowIterator(eventBody)
 	defer jsoniter.ConfigFastest.ReturnIterator(iter)
 	collector := &featureCollector{iter: iter}
 	collector.colSession()
 	if iter.Error != nil {
 		countlog.Error("event!failed to parse session", "err", iter.Error)
+		return nil
+	}
+	if collector.sessionType == "" {
+		countlog.Debug("event!filtered_because_session_type_unknown")
+		return nil
+	}
+	if ds.sessionTypes == nil {
+		ds.sessionTypes = map[string]sessionTypeDS{}
+	}
+	perType := ds.sessionTypes[collector.sessionType]
+	if perType == nil {
+		perType = map[string]int{}
+		ds.sessionTypes[collector.sessionType] = perType
+	}
+	mapKey := collector.matches.toMapKey()
+	count := perType[mapKey] + 1
+	perType[mapKey] = count
+	if count > collector.sessionMatcher.keepNSessionsPerScene {
+		countlog.Debug("event!filtered_because_exceeded_limit", "sessionType", collector.sessionType)
 		return nil
 	}
 	return collector.matches.ToScene()
@@ -122,6 +137,7 @@ var sessionTypeEnd = []byte(`\x`)
 
 type featureCollector struct {
 	iter           *jsoniter.Iterator
+	sessionType    string
 	matches        patternMatches
 	sessionMatcher *sessionMatcher
 }
@@ -158,8 +174,8 @@ func (collector *featureCollector) colCallFromInbound() (sessionMatcher *session
 				iter.Error = errors.New("session type end can not be found")
 				return true
 			}
-			sessionType := string(partialReq[:endPos])
-			sessionMatcher = sessionMatchers[sessionType]
+			collector.sessionType = string(partialReq[:endPos])
+			sessionMatcher = sessionMatchers[collector.sessionType]
 			if sessionMatcher != nil {
 				collector.match(req, sessionMatcher.inboundRequestPg)
 			}
