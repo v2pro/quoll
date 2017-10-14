@@ -8,11 +8,13 @@ import (
 	"github.com/v2pro/quoll/evtstore"
 	"github.com/v2pro/quoll/discr"
 	"github.com/json-iterator/go"
+	"runtime"
 )
 
-var store = evtstore.NewStore("/tmp")
+var store = evtstore.NewStore("/tmp/store")
 
 func main() {
+	runtime.GOMAXPROCS(1)
 	store.Start()
 	http.HandleFunc("/add-event", func(respWriter http.ResponseWriter, req *http.Request) {
 		eventJson, err := ioutil.ReadAll(req.Body)
@@ -29,13 +31,16 @@ func main() {
 	})
 	http.HandleFunc("/update-session-matcher", func(respWriter http.ResponseWriter, req *http.Request) {
 		var cnf discr.SessionMatcherCnf
-		err := discr.UpdateSessionMatcher(cnf)
+		decoder := jsoniter.NewDecoder(req.Body)
+		defer req.Body.Close()
+		err := decoder.Decode(&cnf)
 		if err != nil {
-			encoder := jsoniter.NewEncoder(respWriter)
-			encoder.Encode(map[string]interface{}{
-				"errno": 1,
-				"errmsg": err.Error(),
-			})
+			writeError(respWriter, err)
+			return
+		}
+		err = discr.UpdateSessionMatcher(cnf)
+		if err != nil {
+			writeError(respWriter, err)
 			return
 		}
 		respWriter.Write([]byte(`{"errno":0}`))

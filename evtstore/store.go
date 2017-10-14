@@ -126,7 +126,7 @@ func NewStore(rootDir string) *Store {
 	return &Store{
 		Config:         defaultConfig,
 		RootDir:        rootDir,
-		inputQueue:     make(chan evtInput, 100),
+		inputQueue:     make(chan evtInput, 4096),
 		compressionBuf: make([]byte, 1024),
 	}
 }

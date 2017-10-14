@@ -61,6 +61,9 @@ func (s Scene) appendFeature(key, value []byte) Scene {
 }
 
 func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
+	if cnf.SessionType == "" {
+		return errors.New("session type is empty")
+	}
 	callOutbounds := map[string]*callOutboundMatcher{}
 	for _, callOutbound := range cnf.CallOutbounds {
 		requestPg, err := newPatternGroup(callOutbound.RequestPatterns)
@@ -111,7 +114,7 @@ func (ds *DeduplicationState) SceneOf(eventBody EventBody) Scene {
 		countlog.Error("event!failed to parse session", "err", iter.Error)
 		return nil
 	}
-	if collector.sessionType == "" {
+	if collector.sessionMatcher == nil {
 		countlog.Debug("event!filtered_because_session_type_unknown")
 		return nil
 	}
@@ -133,7 +136,7 @@ func (ds *DeduplicationState) SceneOf(eventBody EventBody) Scene {
 	return collector.matches.ToScene()
 }
 
-var sessionTypeStart = []byte(`\x0bQREQUEST_URI`)
+var sessionTypeStart = []byte(`\x0c2DOCUMENT_URI`)
 var sessionTypeEnd = []byte(`\x`)
 
 type featureCollector struct {
@@ -175,7 +178,7 @@ func (collector *featureCollector) colCallFromInbound() (sessionMatcher *session
 				iter.Error = errors.New("session type end can not be found")
 				return true
 			}
-			collector.sessionType = string(partialReq[:endPos])
+			collector.sessionType = string(bytes.TrimSpace(partialReq[:endPos]))
 			sessionMatcher = sessionMatchers[collector.sessionType]
 			if sessionMatcher != nil {
 				collector.match(req, sessionMatcher.inboundRequestPg)

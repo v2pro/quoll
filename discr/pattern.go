@@ -44,6 +44,9 @@ func (pms patternMatches) ToScene() Scene {
 }
 
 func newPatternGroup(patterns map[string]string) (*patternGroup, error) {
+	if len(patterns) == 0 {
+		return nil, nil
+	}
 	hpatterns := make([]*hyperscan.Pattern, len(patterns))
 	exps := make([]*regexp.Regexp, len(patterns))
 	keys := make([][]byte, len(patterns))
