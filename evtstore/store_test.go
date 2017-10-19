@@ -6,11 +6,22 @@ import (
 	"github.com/blang/vfs/memfs"
 	"time"
 	"github.com/v2pro/quoll/timeutil"
+	"github.com/v2pro/quoll/discr"
 )
 
 func init() {
 	epoch := time.Unix(1483228900, 0)
 	timeutil.MockNow(epoch)
+	discr.NewDiscrminator = func() discr.Discrminator {
+		return &mockDiscr{}
+	}
+}
+
+type mockDiscr struct {
+}
+
+func (md *mockDiscr) SceneOf(eventBody discr.EventBody) discr.Scene {
+	return discr.Scene{}
 }
 
 func reset() {
@@ -98,7 +109,7 @@ func Test_list(t *testing.T) {
 	should.Nil(testStore.Add([]byte(`{"url":"/hello1"}`)))
 	should.Nil(testStore.Add([]byte(`{"url":"/hello2"}`)))
 	testStore.flushInputQueue()
-	events, err := testStore.List(timeutil.Now(), timeutil.Now().Add(time.Hour * 24), 0, 2)
+	events, err := testStore.List(timeutil.Now(), timeutil.Now().Add(time.Hour*24), 0, 2)
 	should.Nil(err)
 	blockId, block, events := events.Next()
 	should.Equal("201701010800", blockId.FileName())

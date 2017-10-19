@@ -78,13 +78,21 @@ func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
 	return nil
 }
 
-type DeduplicationState struct {
+type Discrminator interface {
+	SceneOf(eventBody EventBody) Scene
+}
+
+var NewDiscrminator = func() Discrminator {
+	return &deduplicationState{}
+}
+
+type deduplicationState struct {
 	sessionTypes map[string]sessionTypeDS
 }
 
 type sessionTypeDS map[string]int
 
-func (ds *DeduplicationState) SceneOf(eventBody EventBody) Scene {
+func (ds *deduplicationState) SceneOf(eventBody EventBody) Scene {
 	iter := jsoniter.ConfigFastest.BorrowIterator(eventBody)
 	defer jsoniter.ConfigFastest.ReturnIterator(iter)
 	collector := &featureCollector{iter: iter}
@@ -118,6 +126,19 @@ func (ds *DeduplicationState) SceneOf(eventBody EventBody) Scene {
 var sessionTypeStart = []byte(`\x0c2DOCUMENT_URI`)
 var sessionTypeEnd = []byte(`\x`)
 
+var ExtractSessionType = func(input []byte) (string, error) {
+	startPos := bytes.Index(input, sessionTypeStart)
+	if startPos == -1 {
+		return "", errors.New("session type start can not be found")
+	}
+	partialReq := input[startPos+len(sessionTypeStart):]
+	endPos := bytes.Index(partialReq, sessionTypeEnd)
+	if endPos == -1 {
+		return "", errors.New("session type end can not be found")
+	}
+	return string(bytes.TrimSpace(partialReq[:endPos])), nil
+}
+
 type featureCollector struct {
 	iter           *jsoniter.Iterator
 	sessionType    string
@@ -146,19 +167,15 @@ func (collector *featureCollector) colCallFromInbound() (sessionMatcher *session
 		switch field {
 		case "Request":
 			req := []byte(iter.ReadString())
-			startPos := bytes.Index(req, sessionTypeStart)
-			if startPos == -1 {
-				iter.Error = errors.New("session type start can not be found")
+			sessionType, err := ExtractSessionType(req)
+			if err != nil {
+				if iter.Error == nil {
+					iter.Error = err
+				}
 				return true
 			}
-			partialReq := req[startPos+len(sessionTypeStart):]
-			endPos := bytes.Index(partialReq, sessionTypeEnd)
-			if endPos == -1 {
-				iter.Error = errors.New("session type end can not be found")
-				return true
-			}
-			collector.sessionType = string(bytes.TrimSpace(partialReq[:endPos]))
-			sessionMatcher = sessionMatchers[collector.sessionType]
+			collector.sessionType = sessionType
+			sessionMatcher = sessionMatchers[sessionType]
 			if sessionMatcher != nil {
 				collector.match(req, sessionMatcher.inboundRequestPg)
 			}

@@ -119,7 +119,7 @@ type Store struct {
 	currentFile    vfs.File
 	currentTime    time.Time
 	currentWindow  int64
-	currentDs 	   *discr.DeduplicationState
+	currentDiscr   discr.Discrminator
 }
 
 func NewStore(rootDir string) *Store {
@@ -200,7 +200,7 @@ func (store *Store) flushInputQueue() {
 					countlog.Error("event!failed to switch file", "err", err)
 					return
 				}
-				scene := store.currentDs.SceneOf(input.eventBody)
+				scene := store.currentDiscr.SceneOf(input.eventBody)
 				if scene == nil {
 					continue
 				}
@@ -269,7 +269,7 @@ func (store *Store) switchFile(ts time.Time) error {
 	if window == store.currentWindow {
 		return nil
 	}
-	store.currentDs = &discr.DeduplicationState{}
+	store.currentDiscr = discr.NewDiscrminator()
 	if store.currentFile != nil {
 		if err := store.currentFile.Close(); err != nil {
 			return err
