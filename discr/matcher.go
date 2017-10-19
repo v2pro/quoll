@@ -208,23 +208,31 @@ func (collector *featureCollector) colReturnInbound() {
 
 func (collector *featureCollector) colActions() {
 	collector.iter.ReadArrayCB(func(iter *jsoniter.Iterator) bool {
-		var callOutboundMatcher *callOutboundMatcher
+		var srvCallOutboundMatcher *callOutboundMatcher
+		var wildcardCallOutboundMatcher *callOutboundMatcher
 		iter.ReadObjectCB(func(iter *jsoniter.Iterator, field string) bool {
 			switch field {
 			case "ServiceName":
 				serviceName := iter.ReadString()
 				if collector.sessionMatcher != nil {
-					callOutboundMatcher = collector.sessionMatcher.callOutbounds[serviceName]
+					srvCallOutboundMatcher = collector.sessionMatcher.callOutbounds[serviceName]
 				}
+				wildcardCallOutboundMatcher = collector.sessionMatcher.callOutbounds["*"]
 			case "Request":
 				req := []byte(iter.ReadString())
-				if callOutboundMatcher != nil {
-					collector.match(req, callOutboundMatcher.requestPg)
+				if srvCallOutboundMatcher != nil {
+					collector.match(req, srvCallOutboundMatcher.requestPg)
+				}
+				if wildcardCallOutboundMatcher != nil {
+					collector.match(req, wildcardCallOutboundMatcher.requestPg)
 				}
 			case "Response":
 				resp := []byte(iter.ReadString())
-				if callOutboundMatcher != nil {
-					collector.match(resp, callOutboundMatcher.responsePg)
+				if srvCallOutboundMatcher != nil {
+					collector.match(resp, srvCallOutboundMatcher.responsePg)
+				}
+				if wildcardCallOutboundMatcher != nil {
+					collector.match(resp, wildcardCallOutboundMatcher.responsePg)
 				}
 			default:
 				iter.Skip()
