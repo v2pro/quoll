@@ -18,7 +18,7 @@ import (
 
 const fileHeaderSize = 7
 const blockHeaderSize = 18
-const blockIdSize = 16
+const blockIdSize = 20
 const entryHeaderSize = 8
 
 type Config struct {
@@ -73,14 +73,14 @@ func (blocks EventBlocks) Next() (EventBlockId, EventBlock, EventBlocks) {
 	return blockId, block, blocks[next:]
 }
 
-type EventBlockId []byte // filename(12byte)|indexWithinFile(4byte)
+type EventBlockId []byte // filename(12byte)|offset(8byte)
 
 func (blockId EventBlockId) FileName() string {
 	return string(blockId[:12])
 }
 
-func (blockId EventBlockId) IndexWithinFile() uint32 {
-	return binary.LittleEndian.Uint32(blockId[12:])
+func (blockId EventBlockId) Offset() uint64 {
+	return binary.LittleEndian.Uint64(blockId[12:])
 }
 
 type EventBlock []byte // compressedSize(4byte)|uncompressedSize(4byte)|count(2byte)|minTimestamp(4byte)|maxTimestamp(4byte)|body
@@ -320,15 +320,15 @@ func (store *Store) List(startTime time.Time, endTime time.Time, skip int, limit
 	var headerBuf = [blockHeaderSize]byte{}
 	var header EventBlock = headerBuf[:]
 	readEntriesCount := 0
+	var copyBuf = [4096]byte{}
 	for _, fileInfo := range files {
 		blockIdTmpl := []byte(fileInfo.Name())
-		blockIdTmpl = append(blockIdTmpl, []byte{0, 0, 0, 0}...)
+		blockIdTmpl = append(blockIdTmpl, []byte{0, 0, 0, 0, 0, 0, 0, 0}...)
 		file, err := fs.OpenFile(path.Join(store.RootDir, fileInfo.Name()), os.O_RDONLY, 0)
 		if err != nil {
 			return nil, err
 		}
 		file.Seek(fileHeaderSize, io.SeekStart)
-		index := 0
 		for {
 			_, err = io.ReadFull(file, header)
 			if err == io.EOF {
@@ -337,7 +337,16 @@ func (store *Store) List(startTime time.Time, endTime time.Time, skip int, limit
 			if err != nil {
 				return nil, err
 			}
-			binary.LittleEndian.PutUint32(blockIdTmpl[12:], uint32(index))
+			if readEntriesCount < skip {
+				readEntriesCount += int(header.EntriesCount())
+				file.Seek(int64(header.CompressedSize()), io.SeekCurrent)
+				continue
+			}
+			offset, err := file.Seek(0, io.SeekCurrent)
+			if err != nil {
+				return nil, err
+			}
+			binary.LittleEndian.PutUint64(blockIdTmpl[12:], uint64(offset))
 			_, err = eventBlocks.Write(blockIdTmpl)
 			if err != nil {
 				return nil, err
@@ -346,16 +355,27 @@ func (store *Store) List(startTime time.Time, endTime time.Time, skip int, limit
 			if err != nil {
 				return nil, err
 			}
-			_, err = io.CopyN(eventBlocks, file, int64(header.CompressedSize()))
+			_, err = copyN(eventBlocks, file, int64(header.CompressedSize()), copyBuf[:])
 			if err != nil {
 				return nil, err
 			}
 			readEntriesCount += int(header.EntriesCount())
-			if readEntriesCount > limit {
+			if readEntriesCount > skip + limit {
 				return EventBlocks(eventBlocks.Bytes()), nil
 			}
-			index++
 		}
 	}
 	return EventBlocks(eventBlocks.Bytes()), nil
+}
+
+func copyN(dst io.Writer, src io.Reader, n int64, buf []byte) (written int64, err error) {
+	written, err = io.CopyBuffer(dst, io.LimitReader(src, n), buf)
+	if written == n {
+		return n, nil
+	}
+	if written < n && err == nil {
+		// src stopped early; must have been EOF.
+		err = io.EOF
+	}
+	return
 }
