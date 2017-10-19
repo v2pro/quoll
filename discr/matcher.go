@@ -5,8 +5,6 @@ import (
 	"bytes"
 	"errors"
 	"github.com/v2pro/plz/countlog"
-	"math"
-	"encoding/binary"
 )
 
 type EventBody []byte
@@ -39,25 +37,6 @@ type CallOutboundMatcherCnf struct {
 	ServiceName      string
 	RequestPatterns  map[string]string
 	ResponsePatterns map[string]string
-}
-
-type Feature []byte
-type Scene []byte
-
-func (s Scene) appendFeature(key, value []byte) Scene {
-	if len(key) > math.MaxUint16 {
-		key = key[:math.MaxUint16]
-	}
-	if len(value) > math.MaxUint16 {
-		value = value[:math.MaxUint16]
-	}
-	s = append(s, []byte{0, 0}...)
-	binary.LittleEndian.PutUint16(s[len(s)-2:], uint16(len(key)))
-	s = append(s, key...)
-	s = append(s, []byte{0, 0}...)
-	binary.LittleEndian.PutUint16(s[len(s)-2:], uint16(len(key)))
-	s = append(s, value...)
-	return s
 }
 
 func UpdateSessionMatcher(cnf SessionMatcherCnf) error {

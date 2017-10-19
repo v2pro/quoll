@@ -22,6 +22,8 @@ type patternMatch struct {
 
 type patternMatches []patternMatch
 
+type Scene []patternMatch
+
 func (pms patternMatches) toMapKey() string {
 	size := 0
 	for _, pm := range pms {
@@ -35,12 +37,16 @@ func (pms patternMatches) toMapKey() string {
 }
 
 func (pms patternMatches) ToScene() Scene {
-	var scene Scene
-	for _, pm := range pms {
+	return Scene(pms)
+}
+
+func (s Scene) ToMap() map[string]string {
+	m := map[string]string{}
+	for _, pm := range s {
 		value := pm.exp.FindSubmatch(pm.match)[1]
-		scene = scene.appendFeature(pm.key, value)
+		m[string(pm.key)] = string(value)
 	}
-	return scene
+	return m
 }
 
 func newPatternGroup(patterns map[string]string) (*patternGroup, error) {

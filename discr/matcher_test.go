@@ -9,7 +9,7 @@ func Test_end_to_end(t *testing.T) {
 	should := require.New(t)
 	err := UpdateSessionMatcher(SessionMatcherCnf{
 		SessionType:            "/test",
-		KeepNSessionsPerScene: 1,
+		KeepNSessionsPerScene:  1,
 		InboundRequestPatterns: map[string]string{"xxx": "xxx"},
 		InboundResponsePatterns: map[string]string{
 			"product_id": `product_id=(\d+)`,
@@ -46,18 +46,19 @@ func Test_end_to_end(t *testing.T) {
 }`
 	ds := DeduplicationState{}
 	scene := ds.SceneOf([]byte(session))
-	should.Equal(Scene{}.appendFeature(
-		[]byte("product_id"), []byte("3")).appendFeature(
-		[]byte("combo_type"), []byte("1")).appendFeature(
-		[]byte("user_role"), []byte("driver")).appendFeature(
-		[]byte("user_type"), []byte("normal")), scene)
+	should.Equal(map[string]string{
+		"product_id": "3",
+		"combo_type": "1",
+		"user_role":  "driver",
+		"user_type":  "normal",
+	}, scene.ToMap())
 }
 
 func Test_keep_n(t *testing.T) {
 	should := require.New(t)
 	err := UpdateSessionMatcher(SessionMatcherCnf{
 		SessionType:            "/test",
-		KeepNSessionsPerScene: 2,
+		KeepNSessionsPerScene:  2,
 		InboundRequestPatterns: map[string]string{"xxx": "xxx"},
 		InboundResponsePatterns: map[string]string{
 			"product_id": `product_id=(\d+)`,
@@ -73,17 +74,19 @@ func Test_keep_n(t *testing.T) {
 	}
 }`
 	ds := DeduplicationState{}
-	should.Equal(Scene{}.appendFeature(
-		[]byte("product_id"), []byte("3")), ds.SceneOf([]byte(session)))
-	should.Equal(Scene{}.appendFeature(
-		[]byte("product_id"), []byte("3")), ds.SceneOf([]byte(session)))
+	should.Equal(map[string]string{
+		"product_id": "3",
+	}, ds.SceneOf([]byte(session)).ToMap())
+	should.Equal(map[string]string{
+		"product_id": "3",
+	}, ds.SceneOf([]byte(session)).ToMap())
 	should.Equal(Scene(nil), ds.SceneOf([]byte(session)))
 }
 
 func Test_wildcard(t *testing.T) {
 	should := require.New(t)
 	err := UpdateSessionMatcher(SessionMatcherCnf{
-		SessionType:            "/test",
+		SessionType:           "/test",
 		KeepNSessionsPerScene: 2,
 		CallOutbounds: []CallOutboundMatcherCnf{
 			{
@@ -109,6 +112,7 @@ func Test_wildcard(t *testing.T) {
 	]
 }`
 	ds := DeduplicationState{}
-	should.Equal(Scene{}.appendFeature(
-		[]byte("user_role"), []byte("driver")), ds.SceneOf([]byte(session)))
+	should.Equal(map[string]string{
+		"user_role": "driver",
+	}, ds.SceneOf([]byte(session)).ToMap())
 }

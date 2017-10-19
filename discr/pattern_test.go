@@ -16,9 +16,10 @@ func Test_match(t *testing.T) {
 	should.Nil(err)
 	should.Len(matches, 2)
 	scene := matches.ToScene()
-	should.Equal(Scene{}.appendFeature(
-		[]byte("product_id"), []byte("1")).appendFeature(
-		[]byte("combo_type"), []byte("3")), scene)
+	should.Equal(map[string]string{
+		"product_id": "1",
+		"combo_type": "3",
+	}, scene.ToMap())
 }
 
 func Benchmark_small_string(b *testing.B) {
