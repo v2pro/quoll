@@ -379,11 +379,11 @@ func (store *Store) List(startTime time.Time, endTime time.Time, skip int, limit
 			if shouldSkip {
 				readEntriesCount += int(header.EntriesCount())
 			}
-			minTime := timeutil.Uncompress(baseTime, header.MinCTS())
+			minTime := timeutil.Decompress(baseTime, header.MinCTS())
 			if minTime.After(endTime) {
 				shouldSkip = true
 			}
-			maxTime := timeutil.Uncompress(baseTime, header.MaxCTS())
+			maxTime := timeutil.Decompress(baseTime, header.MaxCTS())
 			if maxTime.Before(startTime) {
 				shouldSkip = true
 			}

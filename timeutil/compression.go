@@ -18,6 +18,6 @@ func Compress(base time.Time, now time.Time) uint32 {
 	return uint32(compressed)
 }
 
-func Uncompress(base time.Time, compressed uint32) time.Time {
+func Decompress(base time.Time, compressed uint32) time.Time {
 	return base.Add(time.Duration(compressed) << 10)
 }
