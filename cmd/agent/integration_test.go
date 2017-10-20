@@ -9,9 +9,21 @@ import (
 	"time"
 	"fmt"
 	"path"
+	"github.com/v2pro/quoll/evtstore"
 )
 
-func Test(t *testing.T) {
+func Test_list(t *testing.T) {
+	should := require.New(t)
+	resp, err := http.Get("http://127.0.0.1:1026/list-events")
+	should.Nil(err)
+	body, err := ioutil.ReadAll(resp.Body)
+	should.Nil(err)
+	blocks := evtstore.EventBlocks(body)
+	blockId, _, _ := blocks.Next()
+	should.Len(blockId.FileName(), 12)
+}
+
+func Test_add(t *testing.T) {
 	should := require.New(t)
 	resp, err := http.Post("http://127.0.0.1:1026/update-session-matcher",
 		"application/json", bytes.NewBufferString(`

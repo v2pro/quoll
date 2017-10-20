@@ -22,11 +22,11 @@ const blockIdSize = 20
 const entryHeaderSize = 8
 const filenamePattern = "200601021504"
 
-var cst *time.Location
+var CST *time.Location
 
 func init() {
 	var err error
-	cst, err = time.LoadLocation("Asia/Shanghai")
+	CST, err = time.LoadLocation("Asia/Shanghai")
 	if err != nil {
 		panic("timezone Asia/Shanghai not loaded: " + err.Error())
 	}
@@ -142,7 +142,12 @@ func NewStore(rootDir string) *Store {
 	}
 }
 
-func (store *Store) Start() {
+func (store *Store) Start() error {
+	err := os.MkdirAll(store.RootDir, 0777)
+	if err != nil {
+		countlog.Error("event!failed to create store dir", "rootDir", store.RootDir, "err", err)
+		return err
+	}
 	go func() {
 		for {
 			store.flushInputQueue()
@@ -150,6 +155,7 @@ func (store *Store) Start() {
 			time.Sleep(store.Config.MaximumFlushInterval)
 		}
 	}()
+	return nil
 }
 
 func (store *Store) clean() {
@@ -335,7 +341,7 @@ func (store *Store) List(startTime time.Time, endTime time.Time, skip int, limit
 	var copyBuf = [4096]byte{}
 	for _, fileInfo := range files {
 		filename := fileInfo.Name()
-		fileTime, err := time.ParseInLocation(filenamePattern, filename, cst)
+		fileTime, err := time.ParseInLocation(filenamePattern, filename, CST)
 		if err != nil {
 			continue
 		}
