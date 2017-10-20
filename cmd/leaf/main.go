@@ -4,12 +4,12 @@ import (
 	"net/http"
 	"github.com/v2pro/plz/countlog"
 	"runtime"
-	"github.com/v2pro/quoll/agent"
+	"github.com/v2pro/quoll/leaf"
 )
 
 func main() {
 	runtime.GOMAXPROCS(1)
-	mux, err := agent.NewServeMux()
+	mux, err := leaf.NewServeMux()
 	if err != nil {
 		countlog.Error("event!agent.start failed", "err", err)
 		return
