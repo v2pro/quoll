@@ -1,0 +1,47 @@
+hash: 344b9ad0a2102474c1d869543c45dad089157a940038dd770c56ee455874babf
+updated: 2017-10-20T22:58:32.533974458+08:00
+imports:
+- name: github.com/blang/vfs
+  version: c14afcac17253ce7418da751ec6b1988790cdc8f
+  subpackages:
+  - memfs
+- name: github.com/cockroachdb/c-lz4
+  version: 834d3303c9e84b1045bc57c3eb3723ee8cb4d33b
+- name: github.com/flier/gohs
+  version: ca524cf8a1ea3b769d11eb454c51fa1daec72982
+  subpackages:
+  - hyperscan
+- name: github.com/hashicorp/errwrap
+  version: 7554cd9344cec97297fa6649b055a8c98c2a1e55
+- name: github.com/hashicorp/go-multierror
+  version: 83588e72410abfbe4df460eeb6f30841ae47d4c4
+- name: github.com/json-iterator/go
+  version: 6240e1e7983a85228f7fd9c3e1b6932d46ec58e2
+- name: github.com/v2pro/plz
+  version: 46cb782c25084451a07aaeeb6e588e4b9f712563
+  subpackages:
+  - countlog
+testImports:
+- name: github.com/davecgh/go-spew
+  version: 6d212800a42e8ab5c146b8ace3490ee17e5225f9
+  subpackages:
+  - spew
+- name: github.com/pierrec/lz4
+  version: 08c27939df1bd95e881e2c2367a749964ad1fceb
+- name: github.com/pierrec/xxHash
+  version: a0006b13c722f7f12368c00a3d3c2ae8a999a0c6
+  subpackages:
+  - xxHash32
+- name: github.com/pmezard/go-difflib
+  version: d8ed2627bdf02c080bf22230dbb337003b7aba2d
+  subpackages:
+  - difflib
+- name: github.com/stretchr/testify
+  version: 69483b4bd14f5845b5a1e55bca19e954e827f1d0
+  subpackages:
+  - assert
+  - require
+- name: github.com/v2pro/gohs
+  version: e4271baf978790d850a2f3f32e96cd448dca3547
+  subpackages:
+  - hyperscan
