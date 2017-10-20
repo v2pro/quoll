@@ -102,7 +102,7 @@ func Test_clean(t *testing.T) {
 	should.Equal("201701010900", dir[0].Name())
 }
 
-func Test_list(t *testing.T) {
+func Test_list_skip_and_limit(t *testing.T) {
 	reset()
 	should := require.New(t)
 	var testStore = NewStore("/tmp")
@@ -118,4 +118,30 @@ func Test_list(t *testing.T) {
 	entries := block.EventEntries()
 	entry, entries := entries.Next()
 	should.Equal(`{"url":"/hello2"}`, string(entry.EventBody()))
+}
+
+func Test_list_time_range(t *testing.T) {
+	reset()
+	should := require.New(t)
+	var testStore = NewStore("/tmp")
+	today := timeutil.Now()
+	yesterday := today.Add(-time.Hour * 24)
+	timeutil.MockNow(yesterday)
+	testStore.flushInputQueue()
+	should.Nil(testStore.Add([]byte(`{"url":"/hello1"}`)))
+	timeutil.MockNow(today)
+	should.Nil(testStore.Add([]byte(`{"url":"/hello2"}`)))
+	testStore.flushInputQueue()
+	timeutil.MockNow(today.Add(time.Minute * 2))
+	should.Nil(testStore.Add([]byte(`{"url":"/hello3"}`)))
+	testStore.flushInputQueue()
+	events, err := testStore.List(today, today.Add(time.Minute), 0, 10)
+	should.Nil(err)
+	blockId, block, events := events.Next()
+	should.Equal("201701010800", blockId.FileName())
+	should.Equal(uint64(0x19), blockId.Offset())
+	entries := block.EventEntries()
+	entry, entries := entries.Next()
+	should.Equal(`{"url":"/hello2"}`, string(entry.EventBody()))
+	should.Len(entries, 0)
 }

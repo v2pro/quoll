@@ -20,6 +20,17 @@ const fileHeaderSize = 7
 const blockHeaderSize = 18
 const blockIdSize = 20
 const entryHeaderSize = 8
+const filenamePattern = "200601021504"
+
+var cst *time.Location
+
+func init() {
+	var err error
+	cst, err = time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		panic("timezone Asia/Shanghai not loaded: " + err.Error())
+	}
+}
 
 type Config struct {
 	BlockEntriesCountLimit uint16
@@ -277,7 +288,7 @@ func (store *Store) switchFile(ts time.Time) error {
 	}
 	store.currentWindow = window
 	store.currentTime = time.Unix(window*3600, 0)
-	fileName := store.currentTime.Format("200601021504")
+	fileName := store.currentTime.Format(filenamePattern)
 	file, err := fs.OpenFile(
 		path.Join(store.RootDir, fileName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err != nil {
@@ -319,16 +330,37 @@ func (store *Store) List(startTime time.Time, endTime time.Time, skip int, limit
 	eventBlocks := bytes.NewBuffer(nil)
 	var headerBuf = [blockHeaderSize]byte{}
 	var header EventBlock = headerBuf[:]
+	var fileHeader = [4]byte{}
 	readEntriesCount := 0
 	var copyBuf = [4096]byte{}
 	for _, fileInfo := range files {
-		blockIdTmpl := []byte(fileInfo.Name())
+		filename := fileInfo.Name()
+		fileTime, err := time.ParseInLocation(filenamePattern, filename, cst)
+		if err != nil {
+			continue
+		}
+		if fileTime.Add(time.Hour).Before(startTime) {
+			countlog.Debug("event!skip_file_because_time_too_small",
+				"fileTime", fileTime, "startTime", startTime)
+			continue
+		}
+		if fileTime.After(endTime) {
+			countlog.Debug("event!skip_file_because_time_too_large",
+				"fileTime", fileTime, "endTime", endTime)
+			continue
+		}
+		blockIdTmpl := []byte(filename)
 		blockIdTmpl = append(blockIdTmpl, []byte{0, 0, 0, 0, 0, 0, 0, 0}...)
-		file, err := fs.OpenFile(path.Join(store.RootDir, fileInfo.Name()), os.O_RDONLY, 0)
+		file, err := fs.OpenFile(path.Join(store.RootDir, filename), os.O_RDONLY, 0)
 		if err != nil {
 			return nil, err
 		}
-		file.Seek(fileHeaderSize, io.SeekStart)
+		file.Seek(3, io.SeekStart)
+		_, err = io.ReadFull(file, fileHeader[:])
+		if err != nil {
+			return nil, err
+		}
+		baseTime := time.Unix(int64(binary.LittleEndian.Uint32(fileHeader[:])), 0)
 		for {
 			_, err = io.ReadFull(file, header)
 			if err == io.EOF {
@@ -337,8 +369,19 @@ func (store *Store) List(startTime time.Time, endTime time.Time, skip int, limit
 			if err != nil {
 				return nil, err
 			}
-			if readEntriesCount < skip {
+			shouldSkip := readEntriesCount < skip
+			if shouldSkip {
 				readEntriesCount += int(header.EntriesCount())
+			}
+			minTime := timeutil.Uncompress(baseTime, header.MinCTS())
+			if minTime.After(endTime) {
+				shouldSkip = true
+			}
+			maxTime := timeutil.Uncompress(baseTime, header.MaxCTS())
+			if maxTime.Before(startTime) {
+				shouldSkip = true
+			}
+			if shouldSkip {
 				file.Seek(int64(header.CompressedSize()), io.SeekCurrent)
 				continue
 			}
@@ -360,7 +403,7 @@ func (store *Store) List(startTime time.Time, endTime time.Time, skip int, limit
 				return nil, err
 			}
 			readEntriesCount += int(header.EntriesCount())
-			if readEntriesCount > skip + limit {
+			if readEntriesCount > skip+limit {
 				return EventBlocks(eventBlocks.Bytes()), nil
 			}
 		}
