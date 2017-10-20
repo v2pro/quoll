@@ -1,7 +1,7 @@
 package discr
 
 import (
-	"github.com/v2pro/gohs/hyperscan"
+	"github.com/flier/gohs/hyperscan"
 	"regexp"
 	"github.com/v2pro/plz/countlog"
 	"unsafe"
