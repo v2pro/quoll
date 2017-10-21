@@ -10,8 +10,57 @@ import (
 
 type EventBody []byte
 
+type SessionTailer func(string, []byte)
+
+var sessionTailers = map[string]chan SessionTailer{}
+var sessionTailersMutex = &sync.Mutex{}
+
 var sessionMatchers = map[string]*sessionMatcher{}
 var sessionMatchersMutex = &sync.Mutex{}
+
+func AddSessionTailer(sessionType string, sessionTailer SessionTailer) error {
+	{
+		sessionTailersMutex.Lock()
+		defer sessionTailersMutex.Unlock()
+		c := sessionTailers[sessionType]
+		if c == nil {
+			sessionTailers[sessionType] = make(chan SessionTailer, 1024)
+		}
+	}
+	select {
+	case sessionTailers[sessionType] <- sessionTailer:
+		return nil
+	default:
+		return errors.New("overflow")
+	}
+}
+
+func notifySessionTailer(sessionType string, session []byte) {
+	for _, sessionTailer := range getSessionTailer("*") {
+		sessionTailer(sessionType, session)
+	}
+}
+
+func getSessionTailer(sessionType string) []SessionTailer {
+	var c chan SessionTailer
+	{
+		sessionTailersMutex.Lock()
+		defer sessionTailersMutex.Unlock()
+		c = sessionTailers[sessionType]
+	}
+	if c == nil {
+		return nil
+	}
+	var sessionTailers []SessionTailer
+	for {
+		select {
+		case sessionTailer := <-c:
+			sessionTailers = append(sessionTailers, sessionTailer)
+		default:
+			return sessionTailers
+		}
+	}
+}
 
 type sessionMatcher struct {
 	sessionType           string // url
@@ -78,11 +127,11 @@ func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
 	sessionMatchersMutex.Lock()
 	defer sessionMatchersMutex.Unlock()
 	sessionMatcher := &sessionMatcher{
-		sessionType:       cnf.SessionType,
+		sessionType:           cnf.SessionType,
 		keepNSessionsPerScene: cnf.KeepNSessionsPerScene,
-		callOutbounds:     callOutbounds,
-		inboundRequestPg:  inboundRequestPg,
-		inboundResponsePg: inboundResponsePg,
+		callOutbounds:         callOutbounds,
+		inboundRequestPg:      inboundRequestPg,
+		inboundResponsePg:     inboundResponsePg,
 	}
 	sessionMatchers[cnf.SessionType] = sessionMatcher
 	return nil
@@ -105,7 +154,7 @@ type sessionTypeDS map[string]int
 func (ds *deduplicationState) SceneOf(eventBody EventBody) Scene {
 	iter := jsoniter.ConfigFastest.BorrowIterator(eventBody)
 	defer jsoniter.ConfigFastest.ReturnIterator(iter)
-	collector := &featureCollector{iter: iter}
+	collector := &featureCollector{iter: iter, session: eventBody}
 	collector.colSession()
 	if iter.Error != nil {
 		countlog.Error("event!failed to parse session", "err", iter.Error)
@@ -150,6 +199,7 @@ var ExtractSessionType = func(input []byte) (string, error) {
 }
 
 type featureCollector struct {
+	session        []byte
 	iter           *jsoniter.Iterator
 	sessionType    string
 	matches        patternMatches
@@ -184,6 +234,7 @@ func (collector *featureCollector) colCallFromInbound() (sessionMatcher *session
 				}
 				return true
 			}
+			notifySessionTailer(sessionType, collector.session)
 			collector.sessionType = sessionType
 			sessionMatcher = getSessionMatcher(sessionType)
 			if sessionMatcher != nil {
@@ -215,7 +266,7 @@ func (collector *featureCollector) colReturnInbound() {
 func (collector *featureCollector) colActions() {
 	collector.iter.ReadArrayCB(func(iter *jsoniter.Iterator) bool {
 		var srvCallOutboundMatcher *callOutboundMatcher
-		var wildcardCallOutboundMatcher *callOutboundMatcher
+		wildcardCallOutboundMatcher := collector.sessionMatcher.callOutbounds["*"]
 		iter.ReadObjectCB(func(iter *jsoniter.Iterator, field string) bool {
 			switch field {
 			case "ServiceName":
@@ -223,7 +274,6 @@ func (collector *featureCollector) colActions() {
 				if collector.sessionMatcher != nil {
 					srvCallOutboundMatcher = collector.sessionMatcher.callOutbounds[serviceName]
 				}
-				wildcardCallOutboundMatcher = collector.sessionMatcher.callOutbounds["*"]
 			case "Request":
 				req := []byte(iter.ReadString())
 				if srvCallOutboundMatcher != nil {

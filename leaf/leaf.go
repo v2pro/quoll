@@ -23,6 +23,7 @@ func NewServeMux() (*http.ServeMux, error) {
 	mux.HandleFunc("/add-event", addEvent)
 	mux.HandleFunc("/list-events", listEvents)
 	mux.HandleFunc("/update-session-matcher", updateSessionMatcher)
+	mux.HandleFunc("/tail", tail)
 	return mux, nil
 }
 
@@ -107,6 +108,14 @@ func updateSessionMatcher(respWriter http.ResponseWriter, req *http.Request) {
 	respWriter.Write([]byte(`{"errno":0}`))
 }
 
+func tail(respWriter http.ResponseWriter, req *http.Request) {
+	respWriter.Write([]byte("<html><body>"))
+	if f, ok := respWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+	discr.Tail(respWriter)
+}
+
 func writeError(respWriter http.ResponseWriter, err error) {
 	resp, marshalErr := json.Marshal(map[string]interface{}{
 		"errno":  1,
@@ -122,3 +131,4 @@ func writeError(respWriter http.ResponseWriter, err error) {
 		return
 	}
 }
+
