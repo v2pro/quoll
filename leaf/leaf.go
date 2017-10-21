@@ -24,6 +24,7 @@ func NewServeMux() (*http.ServeMux, error) {
 	mux.HandleFunc("/list-events", listEvents)
 	mux.HandleFunc("/update-session-matcher", updateSessionMatcher)
 	mux.HandleFunc("/tail", tail)
+	mux.HandleFunc("/", showTailForm)
 	return mux, nil
 }
 
@@ -110,10 +111,29 @@ func updateSessionMatcher(respWriter http.ResponseWriter, req *http.Request) {
 
 func tail(respWriter http.ResponseWriter, req *http.Request) {
 	respWriter.Write([]byte("<html><body>"))
+	err := req.ParseForm()
+	if err != nil {
+		respWriter.Write([]byte(err.Error()))
+		return
+	}
+	sessionType := req.Form.Get("sessionType")
+	respWriter.Write([]byte("sessionType: " + sessionType + "<br/>"))
 	if f, ok := respWriter.(http.Flusher); ok {
 		f.Flush()
 	}
-	discr.Tail(respWriter)
+	discr.Tail(respWriter, sessionType)
+}
+
+func showTailForm(respWriter http.ResponseWriter, req *http.Request) {
+	respWriter.Write([]byte(`
+<html>
+<body>
+	<form action="/tail" method="POST" target="_blank">
+		Session Type: <input type="textbox" name="sessionType" style="width: 40em;"/><br/>
+		<button>tail</button>
+	</form>
+</body>
+	`))
 }
 
 func writeError(respWriter http.ResponseWriter, err error) {

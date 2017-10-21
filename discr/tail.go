@@ -10,13 +10,16 @@ type tailedSession struct {
 	session     []byte
 }
 
-func Tail(respWriter http.ResponseWriter) {
+func Tail(respWriter http.ResponseWriter, sessionType string) {
+	if len(sessionType) == 0 {
+		sessionType = "*"
+	}
 	sessionChannel := make(chan tailedSession)
 	tailer := func(sessionType string, session []byte) {
 		sessionChannel <- tailedSession{sessionType: sessionType, session: session}
 	}
 	for {
-		err := AddSessionTailer("*", tailer)
+		err := AddSessionTailer(sessionType, tailer)
 		if err != nil {
 			respWriter.Write([]byte("overflow!!!\n"))
 			return

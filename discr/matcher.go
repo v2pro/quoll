@@ -39,6 +39,9 @@ func notifySessionTailer(sessionType string, session []byte) {
 	for _, sessionTailer := range getSessionTailer("*") {
 		sessionTailer(sessionType, session)
 	}
+	for _, sessionTailer := range getSessionTailer(sessionType) {
+		sessionTailer(sessionType, session)
+	}
 }
 
 func getSessionTailer(sessionType string) []SessionTailer {
