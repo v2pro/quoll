@@ -88,6 +88,9 @@ func newPatternGroup(patterns map[string]string) (*patternGroup, error) {
 }
 
 func (pg *patternGroup) match(bytes []byte) (patternMatches, error) {
+	if len(bytes) == 0 {
+		return nil, nil
+	}
 	var matches patternMatches
 	err := pg.hdb.Scan(bytes, pg.scratch, func(id uint, from, to uint64, flags uint, context interface{}) error{
 		matches = append(matches, patternMatch{

@@ -90,7 +90,6 @@ func Test_wildcard(t *testing.T) {
 		KeepNSessionsPerScene: 2,
 		CallOutbounds: []CallOutboundMatcherCnf{
 			{
-				ServiceName: "*",
 				RequestPatterns: map[string]string{
 					"user_role": `"user_role":\s*"(\w+)"`,
 				},

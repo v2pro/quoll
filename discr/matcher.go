@@ -103,15 +103,29 @@ func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
 	if cnf.SessionType == "" {
 		return errors.New("session type is empty")
 	}
+	sessionMatcher, err := newSessionMatcher(cnf)
+	if err != nil {
+		return err
+	}
+	sessionMatchersMutex.Lock()
+	defer sessionMatchersMutex.Unlock()
+	sessionMatchers[cnf.SessionType] = sessionMatcher
+	return nil
+}
+
+func newSessionMatcher(cnf SessionMatcherCnf) (*sessionMatcher, error) {
 	callOutbounds := map[string]*callOutboundMatcher{}
 	for _, callOutbound := range cnf.CallOutbounds {
 		requestPg, err := newPatternGroup(callOutbound.RequestPatterns)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		responsePg, err := newPatternGroup(callOutbound.ResponsePatterns)
 		if err != nil {
-			return err
+			return nil, err
+		}
+		if callOutbound.ServiceName == "" {
+			callOutbound.ServiceName = "*"
 		}
 		callOutbounds[callOutbound.ServiceName] = &callOutboundMatcher{
 			serviceName: callOutbound.ServiceName,
@@ -121,14 +135,12 @@ func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
 	}
 	inboundRequestPg, err := newPatternGroup(cnf.InboundRequestPatterns)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	inboundResponsePg, err := newPatternGroup(cnf.InboundResponsePatterns)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	sessionMatchersMutex.Lock()
-	defer sessionMatchersMutex.Unlock()
 	sessionMatcher := &sessionMatcher{
 		sessionType:           cnf.SessionType,
 		keepNSessionsPerScene: cnf.KeepNSessionsPerScene,
@@ -136,8 +148,7 @@ func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
 		inboundRequestPg:      inboundRequestPg,
 		inboundResponsePg:     inboundResponsePg,
 	}
-	sessionMatchers[cnf.SessionType] = sessionMatcher
-	return nil
+	return sessionMatcher, nil
 }
 
 type Discrminator interface {
@@ -154,10 +165,10 @@ type deduplicationState struct {
 
 type sessionTypeDS map[string]int
 
-func (ds *deduplicationState) SceneOf(eventBody EventBody) Scene {
-	iter := jsoniter.ConfigFastest.BorrowIterator(eventBody)
+func (ds *deduplicationState) SceneOf(session EventBody) Scene {
+	iter := jsoniter.ConfigFastest.BorrowIterator(session)
 	defer jsoniter.ConfigFastest.ReturnIterator(iter)
-	collector := &featureCollector{iter: iter, session: eventBody}
+	collector := &featureCollector{iter: iter, session: session}
 	collector.colSession()
 	if iter.Error != nil {
 		countlog.Error("event!failed to parse session", "err", iter.Error)
@@ -207,6 +218,7 @@ type featureCollector struct {
 	sessionType    string
 	matches        patternMatches
 	sessionMatcher *sessionMatcher
+	noTail bool
 }
 
 func (collector *featureCollector) colSession() {
@@ -237,9 +249,14 @@ func (collector *featureCollector) colCallFromInbound() (sessionMatcher *session
 				}
 				return true
 			}
-			notifySessionTailer(sessionType, collector.session)
+			if !collector.noTail {
+				notifySessionTailer(sessionType, collector.session)
+			}
 			collector.sessionType = sessionType
-			sessionMatcher = getSessionMatcher(sessionType)
+			sessionMatcher = collector.sessionMatcher
+			if sessionMatcher == nil {
+				sessionMatcher = getSessionMatcher(sessionType)
+			}
 			if sessionMatcher != nil {
 				collector.match(req, sessionMatcher.inboundRequestPg)
 			}
@@ -309,6 +326,9 @@ func (collector *featureCollector) match(bytes []byte, pg *patternGroup) {
 	matches, err := pg.match(bytes)
 	if err != nil {
 		countlog.Error("event!failed to match", "err", err)
+		if collector.iter.Error == nil {
+			collector.iter.Error = err
+		}
 	}
 	collector.matches = append(collector.matches, matches...)
 }

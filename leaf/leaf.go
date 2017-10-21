@@ -127,10 +127,18 @@ func tail(respWriter http.ResponseWriter, req *http.Request) {
 		return
 	}
 	respWriter.Write([]byte("limit: " + limitStr + "<br/>"))
+	matcher := req.Form.Get("matcher")
+	matcherCnf := discr.SessionMatcherCnf{}
+	err = jsoniter.Unmarshal([]byte(matcher), &matcherCnf)
+	if err != nil {
+		respWriter.Write([]byte(err.Error()))
+		return
+	}
+	respWriter.Write([]byte("matcher: <pre>" + matcher + "</pre><br/>"))
 	if f, ok := respWriter.(http.Flusher); ok {
 		f.Flush()
 	}
-	discr.Tail(respWriter, sessionType, showSession == "on", limit)
+	discr.Tail(respWriter, sessionType, showSession == "on", limit, matcherCnf)
 }
 
 func showTailForm(respWriter http.ResponseWriter, req *http.Request) {
@@ -138,9 +146,22 @@ func showTailForm(respWriter http.ResponseWriter, req *http.Request) {
 <html>
 <body>
 	<form action="/tail" method="POST" target="_blank">
-		Session Type: <input type="textbox" name="sessionType" style="width: 40em;"/><br/>
-		Show Session: <input type="checkbox" name="showSession"/><br/>
-		Limit: <input type="number" name="limit" value="10"/><br/>
+			Session Type: <input type="textbox" name="sessionType" style="width: 40em;"/><br/>
+			Show Session: <input type="checkbox" name="showSession"/><br/>
+			Limit: <input type="number" name="limit" value="10"/><br/>
+			Matcher:
+<textarea rows="20" cols="60" name="matcher">
+{
+	"InboundRequestPatterns": {},
+	"InboundResponsePatterns": {},
+	"CallOutbounds": [
+		{
+		"RequestPatterns": {},
+		"ResponsePatterns": {}
+		}
+	]
+}
+</textarea><br/>
 		<button>tail</button>
 	</form>
 </body>
