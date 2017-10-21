@@ -46,7 +46,7 @@ func Test_add(t *testing.T) {
 	should.Nil(err)
 	contents := [][]byte{}
 	totalSize := 0
-	for _, file := range files[:1024] {
+	for _, file := range files[:12] {
 		content, err := ioutil.ReadFile(path.Join("/home/xiaoju/testdata2", file.Name()))
 		should.Nil(err)
 		contents = append(contents, content)

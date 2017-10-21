@@ -10,7 +10,7 @@ type tailedSession struct {
 	session     []byte
 }
 
-func Tail(respWriter http.ResponseWriter, sessionType string) {
+func Tail(respWriter http.ResponseWriter, sessionType string, showSession bool, limit int) {
 	if len(sessionType) == 0 {
 		sessionType = "*"
 	}
@@ -18,6 +18,7 @@ func Tail(respWriter http.ResponseWriter, sessionType string) {
 	tailer := func(sessionType string, session []byte) {
 		sessionChannel <- tailedSession{sessionType: sessionType, session: session}
 	}
+	count := 0
 	for {
 		err := AddSessionTailer(sessionType, tailer)
 		if err != nil {
@@ -30,16 +31,33 @@ func Tail(respWriter http.ResponseWriter, sessionType string) {
 			respWriter.Write([]byte("timeout!!!\n"))
 			return
 		case tailedSession := <-sessionChannel:
-			_, err = respWriter.Write([]byte(tailedSession.sessionType))
-			if err != nil {
+			if _, err = respWriter.Write([]byte(`<span style="color:red;">`)); err != nil {
 				return
 			}
-			_, err = respWriter.Write([]byte("<br>\n"))
-			if err != nil {
+			if _, err = respWriter.Write([]byte(tailedSession.sessionType)); err != nil {
 				return
+			}
+			if _, err = respWriter.Write([]byte("</span><br/>\n")); err != nil {
+				return
+			}
+			if showSession {
+				if _, err = respWriter.Write([]byte("<pre>\n")); err != nil {
+					return
+				}
+				if _, err = respWriter.Write(tailedSession.session); err != nil {
+					return
+				}
+				if _, err = respWriter.Write([]byte("</pre><br/>\n")); err != nil {
+					return
+				}
 			}
 			if f, ok := respWriter.(http.Flusher); ok {
 				f.Flush()
+			}
+			count++
+			if limit > 0 && count > limit {
+				respWriter.Write([]byte("limit reached!!!\n"))
+				return
 			}
 		}
 	}

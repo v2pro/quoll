@@ -118,10 +118,19 @@ func tail(respWriter http.ResponseWriter, req *http.Request) {
 	}
 	sessionType := req.Form.Get("sessionType")
 	respWriter.Write([]byte("sessionType: " + sessionType + "<br/>"))
+	showSession := req.Form.Get("showSession")
+	respWriter.Write([]byte("showSession: " + showSession + "<br/>"))
+	limitStr := req.Form.Get("limit")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil {
+		respWriter.Write([]byte(err.Error()))
+		return
+	}
+	respWriter.Write([]byte("limit: " + limitStr + "<br/>"))
 	if f, ok := respWriter.(http.Flusher); ok {
 		f.Flush()
 	}
-	discr.Tail(respWriter, sessionType)
+	discr.Tail(respWriter, sessionType, showSession == "on", limit)
 }
 
 func showTailForm(respWriter http.ResponseWriter, req *http.Request) {
@@ -130,6 +139,8 @@ func showTailForm(respWriter http.ResponseWriter, req *http.Request) {
 <body>
 	<form action="/tail" method="POST" target="_blank">
 		Session Type: <input type="textbox" name="sessionType" style="width: 40em;"/><br/>
+		Show Session: <input type="checkbox" name="showSession"/><br/>
+		Limit: <input type="number" name="limit" value="10"/><br/>
 		<button>tail</button>
 	</form>
 </body>
