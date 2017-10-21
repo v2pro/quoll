@@ -41,7 +41,3 @@ testImports:
   subpackages:
   - assert
   - require
-- name: github.com/v2pro/gohs
-  version: e4271baf978790d850a2f3f32e96cd448dca3547
-  subpackages:
-  - hyperscan

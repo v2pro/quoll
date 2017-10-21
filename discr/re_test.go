@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"github.com/json-iterator/go"
-	"github.com/v2pro/gohs/hyperscan"
+	"github.com/flier/gohs/hyperscan"
 	"runtime/debug"
 )
 

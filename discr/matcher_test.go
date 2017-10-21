@@ -44,7 +44,7 @@ func Test_end_to_end(t *testing.T) {
 		}
 	]
 }`
-	ds := DeduplicationState{}
+	ds := deduplicationState{}
 	scene := ds.SceneOf([]byte(session))
 	should.Equal(map[string]string{
 		"product_id": "3",
@@ -73,7 +73,7 @@ func Test_keep_n(t *testing.T) {
 		"Response": "product_id=3&combo_type=1"
 	}
 }`
-	ds := DeduplicationState{}
+	ds := deduplicationState{}
 	should.Equal(map[string]string{
 		"product_id": "3",
 	}, ds.SceneOf([]byte(session)).ToMap())
@@ -111,7 +111,7 @@ func Test_wildcard(t *testing.T) {
 		}
 	]
 }`
-	ds := DeduplicationState{}
+	ds := deduplicationState{}
 	should.Equal(map[string]string{
 		"user_role": "driver",
 	}, ds.SceneOf([]byte(session)).ToMap())

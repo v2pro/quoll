@@ -5,11 +5,13 @@ import (
 	"bytes"
 	"errors"
 	"github.com/v2pro/plz/countlog"
+	"sync"
 )
 
 type EventBody []byte
 
 var sessionMatchers = map[string]*sessionMatcher{}
+var sessionMatchersMutex = &sync.Mutex{}
 
 type sessionMatcher struct {
 	sessionType           string // url
@@ -37,6 +39,12 @@ type CallOutboundMatcherCnf struct {
 	ServiceName      string
 	RequestPatterns  map[string]string
 	ResponsePatterns map[string]string
+}
+
+func getSessionMatcher(sessionType string) *sessionMatcher {
+	sessionMatchersMutex.Lock()
+	defer sessionMatchersMutex.Unlock()
+	return sessionMatchers[sessionType]
 }
 
 func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
@@ -67,6 +75,8 @@ func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
 	if err != nil {
 		return err
 	}
+	sessionMatchersMutex.Lock()
+	defer sessionMatchersMutex.Unlock()
 	sessionMatcher := &sessionMatcher{
 		sessionType:       cnf.SessionType,
 		keepNSessionsPerScene: cnf.KeepNSessionsPerScene,
@@ -175,7 +185,7 @@ func (collector *featureCollector) colCallFromInbound() (sessionMatcher *session
 				return true
 			}
 			collector.sessionType = sessionType
-			sessionMatcher = sessionMatchers[sessionType]
+			sessionMatcher = getSessionMatcher(sessionType)
 			if sessionMatcher != nil {
 				collector.match(req, sessionMatcher.inboundRequestPg)
 			}
