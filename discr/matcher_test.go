@@ -30,7 +30,7 @@ func Test_end_to_end(t *testing.T) {
 	should.Nil(err)
 	session := `{
 	"CallFromInbound": {
-		"Request": "\\x0c2DOCUMENT_URI/test\\x0c2"
+		"Request": "REQUEST_URI/test\\x0c2"
 	},
 	"ReturnInbound": {
 		"Response": "product_id=3&combo_type=1"
@@ -67,7 +67,7 @@ func Test_keep_n(t *testing.T) {
 	should.Nil(err)
 	session := `{
 	"CallFromInbound": {
-		"Request": "\\x0c2DOCUMENT_URI/test\\x0c2"
+		"Request": "REQUEST_URI/test\\x0c2"
 	},
 	"ReturnInbound": {
 		"Response": "product_id=3&combo_type=1"
@@ -99,7 +99,7 @@ func Test_wildcard(t *testing.T) {
 	should.Nil(err)
 	session := `{
 	"CallFromInbound": {
-		"Request": "\\x0c2DOCUMENT_URI/test\\x0c2"
+		"Request": "REQUEST_URI/test\\x0c2"
 	},
 	"Actions": [
 		{

@@ -196,7 +196,7 @@ func (ds *deduplicationState) SceneOf(session EventBody) Scene {
 	return collector.matches.ToScene()
 }
 
-var sessionTypeStart = []byte(`\x0c2DOCUMENT_URI`)
+var sessionTypeStart = []byte(`REQUEST_URI`)
 var sessionTypeEnd = []byte(`\x`)
 
 var ExtractSessionType = func(input []byte) (string, error) {
@@ -286,7 +286,10 @@ func (collector *featureCollector) colReturnInbound() {
 func (collector *featureCollector) colActions() {
 	collector.iter.ReadArrayCB(func(iter *jsoniter.Iterator) bool {
 		var srvCallOutboundMatcher *callOutboundMatcher
-		wildcardCallOutboundMatcher := collector.sessionMatcher.callOutbounds["*"]
+		var wildcardCallOutboundMatcher *callOutboundMatcher
+		if collector.sessionMatcher != nil {
+			wildcardCallOutboundMatcher = collector.sessionMatcher.callOutbounds["*"]
+		}
 		iter.ReadObjectCB(func(iter *jsoniter.Iterator, field string) bool {
 			switch field {
 			case "ServiceName":
