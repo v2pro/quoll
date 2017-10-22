@@ -14,7 +14,7 @@ func main() {
 		countlog.Error("event!agent.start failed", "err", err)
 		return
 	}
-	addr := ":1026"
+	addr := ":8005"
 	countlog.Info("event!agent.start", "addr", addr)
 	err = http.ListenAndServe(addr, mux)
 	countlog.Info("event!agent.stop", "err", err)

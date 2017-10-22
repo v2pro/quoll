@@ -14,7 +14,7 @@ import (
 
 func Test_list(t *testing.T) {
 	should := require.New(t)
-	resp, err := http.Get("http://127.0.0.1:1026/list-events")
+	resp, err := http.Get("http://127.0.0.1:8005/list-events")
 	should.Nil(err)
 	body, err := ioutil.ReadAll(resp.Body)
 	should.Nil(err)
@@ -54,7 +54,7 @@ func Test_add(t *testing.T) {
 	}
 	before := time.Now()
 	for _, content := range contents {
-		resp, err := http.Post("http://127.0.0.1:1026/add-event", "application/json", bytes.NewBuffer(content))
+		resp, err := http.Post("http://127.0.0.1:8005/add-event", "application/json", bytes.NewBuffer(content))
 		should.Nil(err)
 		respBody, err := ioutil.ReadAll(resp.Body)
 		should.Nil(err)
