@@ -6,7 +6,7 @@ import:
   subpackages:
   - hyperscan
 - package: github.com/json-iterator/go
-  version: ^1.0.3
+  version: master
 - package: github.com/v2pro/plz
   subpackages:
   - countlog
