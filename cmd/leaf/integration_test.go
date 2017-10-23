@@ -25,11 +25,11 @@ func Test_list(t *testing.T) {
 
 func Test_add(t *testing.T) {
 	should := require.New(t)
-	resp, err := http.Post("http://127.0.0.1:1026/update-session-matcher",
+	resp, err := http.Post("http://127.0.0.1:8005/update-session-matcher",
 		"application/json", bytes.NewBufferString(`
 		{
-			"SessionType": "/application/passenger/v2/index.php/core/pNewOrder",
-			"KeepNSessionsPerScene": 1,
+			"SessionType": "/gulfstream/passenger/v2/core/pNewOrder",
+			"KeepNSessionsPerScene": 10240,
 			"CallOutbounds": [
 				{
 					"ServiceName": "Carrera",
@@ -46,7 +46,7 @@ func Test_add(t *testing.T) {
 	should.Nil(err)
 	contents := [][]byte{}
 	totalSize := 0
-	for _, file := range files[:12] {
+	for _, file := range files[:1024] {
 		content, err := ioutil.ReadFile(path.Join("/home/xiaoju/testdata2", file.Name()))
 		should.Nil(err)
 		contents = append(contents, content)
@@ -58,7 +58,14 @@ func Test_add(t *testing.T) {
 		should.Nil(err)
 		respBody, err := ioutil.ReadAll(resp.Body)
 		should.Nil(err)
-		should.Equal(`{"errno":0}`, string(respBody))
+		if string(respBody) != `{"errno":0}` {
+			time.Sleep(time.Second)
+			resp, err := http.Post("http://127.0.0.1:8005/add-event", "application/json", bytes.NewBuffer(content))
+			should.Nil(err)
+			respBody, err := ioutil.ReadAll(resp.Body)
+			should.Nil(err)
+			should.Equal(`{"errno":0}`, string(respBody))
+		}
 	}
 	after := time.Now()
 	fmt.Println(totalSize)

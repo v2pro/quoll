@@ -175,7 +175,8 @@ func (ds *deduplicationState) SceneOf(session EventBody) Scene {
 		return nil
 	}
 	if collector.sessionMatcher == nil {
-		countlog.Debug("event!filtered_because_session_type_unknown")
+		countlog.Debug("event!filtered_because_session_type_unknown",
+			"sessionType", collector.sessionType)
 		return nil
 	}
 	if ds.sessionTypes == nil {
@@ -209,7 +210,12 @@ var ExtractSessionType = func(input []byte) (string, error) {
 	if endPos == -1 {
 		return "", errors.New("session type end can not be found")
 	}
-	return string(bytes.TrimSpace(partialReq[:endPos])), nil
+	sessionType := partialReq[:endPos]
+	questionMarkPos := bytes.IndexByte(sessionType, '?')
+	if questionMarkPos != -1 {
+		sessionType = sessionType[:questionMarkPos]
+	}
+	return string(bytes.TrimSpace(sessionType)), nil
 }
 
 type featureCollector struct {

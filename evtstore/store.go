@@ -137,7 +137,7 @@ func NewStore(rootDir string) *Store {
 	return &Store{
 		Config:         defaultConfig,
 		RootDir:        rootDir,
-		inputQueue:     make(chan evtInput, 4096),
+		inputQueue:     make(chan evtInput, 100),
 		compressionBuf: make([]byte, 1024),
 	}
 }
@@ -185,7 +185,14 @@ func (store *Store) clean() {
 }
 
 func (store *Store) flushInputQueue() {
+	startFlushTime := time.Now()
+	totalEntriesCount := 0
 	defer func() {
+		if totalEntriesCount > 0 {
+			countlog.Debug("event!store.flushed",
+				"latency", time.Since(startFlushTime),
+				"totalEntriesCount", totalEntriesCount)
+		}
 		recovered := recover()
 		if recovered != nil {
 			countlog.Fatal("event!store.flushInputQueue.panic", "err", recovered,
@@ -195,66 +202,77 @@ func (store *Store) flushInputQueue() {
 	tmpBuf := [4]byte{}
 	blockBody := []byte{}
 	for {
-		entriesCount := uint16(0)
-		blockBody = blockBody[:0]
-		minCTS := uint32(math.MaxUint32)
-		maxCTS := uint32(0)
-		for {
-			select {
-			case input := <-store.inputQueue:
-				if input.eventTS.Sub(store.currentTime) > time.Hour && len(blockBody) > 0 {
-					err := store.saveBlock(entriesCount, minCTS, maxCTS, blockBody)
-					if err != nil {
-						countlog.Error("event!failed to save block", "err", err)
-						return
-					}
-					entriesCount = uint16(0)
-					blockBody = blockBody[:0]
-					minCTS = uint32(math.MaxUint32)
-					maxCTS = uint32(0)
-				}
-				if err := store.switchFile(input.eventTS); err != nil {
-					countlog.Error("event!failed to switch file", "err", err)
-					return
-				}
-				scene := store.currentDiscr.SceneOf(input.eventBody)
-				if scene == nil {
-					continue
-				}
-				eventCTS := timeutil.Compress(store.currentTime, input.eventTS)
-				if eventCTS > maxCTS {
-					maxCTS = eventCTS
-				}
-				if eventCTS < minCTS {
-					minCTS = eventCTS
-				}
-				entriesCount++
-				binary.LittleEndian.PutUint32(tmpBuf[:], uint32(len(input.eventBody)))
-				blockBody = append(blockBody, tmpBuf[:]...)
-				binary.LittleEndian.PutUint32(tmpBuf[:], eventCTS)
-				blockBody = append(blockBody, tmpBuf[:]...)
-				blockBody = append(blockBody, input.eventBody...)
-				if entriesCount > store.Config.BlockEntriesCountLimit {
-					break
-				}
-				if len(blockBody) > store.Config.BlockSizeLimit {
-					break
-				}
-				continue
-			default:
-				if len(blockBody) > 0 {
-					break
-				}
-				return
-			}
+		shouldContinue, entriesCount := store.flushOnce(tmpBuf, blockBody)
+		if !shouldContinue {
 			break
 		}
-		err := store.saveBlock(entriesCount, minCTS, maxCTS, blockBody)
-		if err != nil {
-			countlog.Error("event!failed to save block", "err", err)
-			return
-		}
+		totalEntriesCount += int(entriesCount)
 	}
+}
+
+func (store *Store) flushOnce(tmpBuf [4]byte, blockBody []byte) (bool, uint16) {
+	entriesCount := uint16(0)
+	blockBody = blockBody[:0]
+	minCTS := uint32(math.MaxUint32)
+	maxCTS := uint32(0)
+	for {
+		select {
+		case input := <-store.inputQueue:
+			startProcessInputTime := time.Now()
+			if input.eventTS.Sub(store.currentTime) > time.Hour && len(blockBody) > 0 {
+				err := store.saveBlock(entriesCount, minCTS, maxCTS, blockBody)
+				if err != nil {
+					countlog.Error("event!failed to save block", "err", err)
+					return false, entriesCount
+				}
+				entriesCount = uint16(0)
+				blockBody = blockBody[:0]
+				minCTS = uint32(math.MaxUint32)
+				maxCTS = uint32(0)
+			}
+			if err := store.switchFile(input.eventTS); err != nil {
+				countlog.Error("event!failed to switch file", "err", err)
+				return false, entriesCount
+			}
+			scene := store.currentDiscr.SceneOf(input.eventBody)
+			if scene == nil {
+				continue
+			}
+			eventCTS := timeutil.Compress(store.currentTime, input.eventTS)
+			if eventCTS > maxCTS {
+				maxCTS = eventCTS
+			}
+			if eventCTS < minCTS {
+				minCTS = eventCTS
+			}
+			entriesCount++
+			binary.LittleEndian.PutUint32(tmpBuf[:], uint32(len(input.eventBody)))
+			blockBody = append(blockBody, tmpBuf[:]...)
+			binary.LittleEndian.PutUint32(tmpBuf[:], eventCTS)
+			blockBody = append(blockBody, tmpBuf[:]...)
+			blockBody = append(blockBody, input.eventBody...)
+			countlog.Trace("event!store.added_event", "latency", time.Since(startProcessInputTime))
+			if entriesCount > store.Config.BlockEntriesCountLimit {
+				break
+			}
+			if len(blockBody) > store.Config.BlockSizeLimit {
+				break
+			}
+			continue
+		default:
+			if len(blockBody) > 0 {
+				break
+			}
+			return false, entriesCount
+		}
+		break
+	}
+	err := store.saveBlock(entriesCount, minCTS, maxCTS, blockBody)
+	if err != nil {
+		countlog.Error("event!failed to save block", "err", err)
+		return false, entriesCount
+	}
+	return true, entriesCount
 }
 
 func (store *Store) saveBlock(entriesCount uint16, minCTS, maxCTS uint32, blockBody []byte) error {

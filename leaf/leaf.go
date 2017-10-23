@@ -14,18 +14,17 @@ import (
 
 var store = evtstore.NewStore("/tmp/store")
 
-func NewServeMux() (*http.ServeMux, error) {
+func RegisterHttpHandlers(mux *http.ServeMux) error {
 	err := store.Start()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	mux := http.NewServeMux()
 	mux.HandleFunc("/add-event", addEvent)
 	mux.HandleFunc("/list-events", listEvents)
 	mux.HandleFunc("/update-session-matcher", updateSessionMatcher)
 	mux.HandleFunc("/tail", tail)
 	mux.HandleFunc("/", showTailForm)
-	return mux, nil
+	return nil
 }
 
 func addEvent(respWriter http.ResponseWriter, req *http.Request) {
