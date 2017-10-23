@@ -6,6 +6,8 @@ import (
 	"errors"
 	"github.com/v2pro/plz/countlog"
 	"sync"
+	"time"
+	"strings"
 )
 
 type EventBody []byte
@@ -103,6 +105,7 @@ func UpdateSessionMatcher(cnf SessionMatcherCnf) error {
 	if cnf.SessionType == "" {
 		return errors.New("session type is empty")
 	}
+	cnf.SessionType = strings.Replace(cnf.SessionType, `/`, `\/`, -1)
 	sessionMatcher, err := newSessionMatcher(cnf)
 	if err != nil {
 		return err
@@ -166,6 +169,10 @@ type deduplicationState struct {
 type sessionTypeDS map[string]int
 
 func (ds *deduplicationState) SceneOf(session EventBody) Scene {
+	startTime := time.Now()
+	defer func() {
+		countlog.Trace("event!discr.SceneOf", "latency", time.Since(startTime))
+	}()
 	iter := jsoniter.ConfigFastest.BorrowIterator(session)
 	defer jsoniter.ConfigFastest.ReturnIterator(iter)
 	collector := &featureCollector{iter: iter, session: session}
@@ -198,7 +205,7 @@ func (ds *deduplicationState) SceneOf(session EventBody) Scene {
 }
 
 var sessionTypeStart = []byte(`REQUEST_URI`)
-var sessionTypeEnd = []byte(`\x`)
+var sessionTypeEnd = []byte(`\\x`)
 
 var ExtractSessionType = func(input []byte) (string, error) {
 	startPos := bytes.Index(input, sessionTypeStart)
@@ -224,7 +231,7 @@ type featureCollector struct {
 	sessionType    string
 	matches        patternMatches
 	sessionMatcher *sessionMatcher
-	noTail bool
+	noTail         bool
 }
 
 func (collector *featureCollector) colSession() {
@@ -247,7 +254,7 @@ func (collector *featureCollector) colCallFromInbound() (sessionMatcher *session
 	collector.iter.ReadObjectCB(func(iter *jsoniter.Iterator, field string) bool {
 		switch field {
 		case "Request":
-			req := []byte(iter.ReadString())
+			req := iter.SkipAndReturnBytes()
 			sessionType, err := ExtractSessionType(req)
 			if err != nil {
 				if iter.Error == nil {
@@ -278,7 +285,7 @@ func (collector *featureCollector) colReturnInbound() {
 	collector.iter.ReadObjectCB(func(iter *jsoniter.Iterator, field string) bool {
 		switch field {
 		case "Response":
-			resp := []byte(iter.ReadString())
+			resp := iter.SkipAndReturnBytes()
 			if collector.sessionMatcher != nil {
 				collector.match(resp, collector.sessionMatcher.inboundResponsePg)
 			}
@@ -304,7 +311,7 @@ func (collector *featureCollector) colActions() {
 					srvCallOutboundMatcher = collector.sessionMatcher.callOutbounds[serviceName]
 				}
 			case "Request":
-				req := []byte(iter.ReadString())
+				req := iter.SkipAndReturnBytes()
 				if srvCallOutboundMatcher != nil {
 					collector.match(req, srvCallOutboundMatcher.requestPg)
 				}
@@ -312,7 +319,7 @@ func (collector *featureCollector) colActions() {
 					collector.match(req, wildcardCallOutboundMatcher.requestPg)
 				}
 			case "Response":
-				resp := []byte(iter.ReadString())
+				resp := iter.SkipAndReturnBytes()
 				if srvCallOutboundMatcher != nil {
 					collector.match(resp, srvCallOutboundMatcher.responsePg)
 				}

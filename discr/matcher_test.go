@@ -19,10 +19,10 @@ func Test_end_to_end(t *testing.T) {
 			{
 				ServiceName: "passport",
 				RequestPatterns: map[string]string{
-					"user_role": `"user_role":\s*"(\w+)"`,
+					"user_role": `\\"user_role\\":\s*\\"(\w+)\\"`,
 				},
 				ResponsePatterns: map[string]string{
-					"user_type": `"user_type":\s*"(\w+)"`,
+					"user_type": `\\"user_type\\":\s*\\"(\w+)\\"`,
 				},
 			},
 		},

@@ -12,6 +12,7 @@ func main() {
 	runtime.GOMAXPROCS(1)
 	logWriter := countlog.NewAsyncLogWriter(
 		countlog.LEVEL_DEBUG, countlog.NewFileLogOutput("STDERR"))
+	logWriter.EventWhitelist["event!discr.SceneOf"] = true
 	logWriter.Start()
 	countlog.LogWriters = append(countlog.LogWriters, logWriter)
 	err := leaf.RegisterHttpHandlers(http.DefaultServeMux)
