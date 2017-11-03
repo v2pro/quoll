@@ -2,26 +2,27 @@ package leaf
 
 import (
     "net/http"
+    "io/ioutil"
     "strings"
     "github.com/json-iterator/go"
 )
 
 type disfEndpoint struct {
-    endpointId  int
-    cuuid       string
-    protocol    string
-    port        int
-    ip          string
-    status      int
-    weight      int
-    updateTime  string
-    createTime  string
+    EndpointId  int     `json:"endpointId"`
+    Cuuid       string  `json:"cuuid"`
+    Protocol    string  `json:"protocol"`
+    Port        int     `json:"port"`
+    Ip          string  `json:"ip"`
+    Status      int     `json:"status"`
+    Weight      int     `json:"weight"`
+    UpdateTime  string  `json:"updateTime"`
+    CreateTime  string  `json:"createTime"`
 }
 
 type disfSearchResult struct {
-    code    int
-    message string
-    data    []disfEndpoint
+    Code    int             `json:"code"`
+    Message string          `json:"message"`
+    Data    []disfEndpoint  `json:"data"`
 }
 
 func endpoint2Name(endp string) string {
@@ -29,19 +30,24 @@ func endpoint2Name(endp string) string {
     var servNames string
 
     ret := disfSearchResult{}
-    rsp, err := http.Get("http://100.70.241.15:9527/disf/endpoint/search?userName=quoll&ip=" + key)
+    rsp, err := http.Get("http://100.70.241.15:9527/disf/endpoint/search?userName=quoll&ip=" + endp)
     //rsp, err := http.Get("http://127.0.0.1:9527/disf/endpoint/search?userName=quoll&ip=" + endp)
     if err != nil {
         return ""
     }
 
-    err = jsoniter.NewDecoder(rsp.Body).Decode(&ret)
+    body, err := ioutil.ReadAll(rsp.Body)
     if err != nil {
         return ""
     }
 
-    for _, d := range ret.data {
-        s := strings.Split(d.cuuid, "@")
+    err = jsoniter.Unmarshal(body, &ret)
+    if err != nil {
+        return ""
+    }
+
+    for _, d := range ret.Data {
+        s := strings.Split(d.Cuuid, "@")
         if len(s) > 1 {
             servNames += "," + s[1]
         } else {
@@ -49,5 +55,9 @@ func endpoint2Name(endp string) string {
         }
     }
 
-    return servNames[1:]
+    if len(servNames) > 0 {
+        return servNames[1:]
+    } else {
+        return ""
+    }
 }
