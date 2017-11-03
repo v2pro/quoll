@@ -10,7 +10,41 @@ import (
 	"github.com/json-iterator/go"
 	"time"
 	"strconv"
+    "fmt"
 )
+
+type eventRecordPeer struct {
+    Zone    string  `json:"Zone"`
+    IP      string  `json:"IP"`
+    Port    int     `json:"Port"`
+}
+
+type eventRecordAction struct {
+    // CallFromInbound, ReturnInbound also use this struct
+    // some fields will be omitted if not exists
+    ActionType      string  `json:"ActionType"`
+    ServiceName     string  `json:"ServiceName,omitempty"`
+    Request         string  `json:"Request,omitempty"`  // not in ReturnInbound
+    Response        string  `json:"Response,omitempty"` // not in CallFromInbound
+    ResponseTime    int64   `json:"ResponseTime,omitempty"`
+    Peer            eventRecordPeer `json:"Peer"`
+    SocketFd        int     `json:"SocketFD,omitempty"` // not in ReturnInbound, CallFromInbound
+    OccurredAt      int64   `json:"OccurredAt"`
+    Content         string  `json:"Content,omitempty"`
+    ActionIndex     int     `json:"ActionIndex"`
+}
+
+type eventRecordCallFromInbound eventRecordAction
+type eventRecordReturnInbound eventRecordAction
+
+type eventRecord struct {
+    Context             string
+    SessionId           string
+    sinkTime            int64
+    Actions             []eventRecordAction
+    CallFromInbound     eventRecordCallFromInbound 
+    ReturnInbound       eventRecordReturnInbound 
+}
 
 var store = evtstore.NewStore("/tmp/store")
 
@@ -33,6 +67,41 @@ func addEvent(respWriter http.ResponseWriter, req *http.Request) {
 		writeError(respWriter, err)
 		return
 	}
+    
+    // get disf service name from ip:port
+    record := eventRecord{}
+    err = jsoniter.Unmarshal(eventJson, &record)
+
+    if err != nil {
+		writeError(respWriter, err)
+		return
+    }
+
+    var servNames map[string]string
+    servNames = make(map[string]string)
+    for i, act := range record.Actions {
+        if act.Peer.IP == "" || act.Peer.Port == 9891 {
+            continue
+        }
+
+        key := act.Peer.IP + strconv.Itoa(act.Peer.Port)
+
+        _, ok := servNames[key]
+        if ok {
+            record.Actions[i].ServiceName = servNames[key]
+        } else {
+            servNames[key] = endpoint2Name(key)
+            fmt.Printf(servNames[key])
+            record.Actions[i].ServiceName = servNames[key]
+        }
+    }
+
+    eventJson, err = jsoniter.Marshal(record)
+    if err != nil {
+		writeError(respWriter, err)
+		return
+    }
+ 
 	err = store.Add(eventJson)
 	if err != nil {
 		writeError(respWriter, err)
