@@ -10,7 +10,6 @@ import (
 	"github.com/json-iterator/go"
 	"time"
 	"strconv"
-    "fmt"
 )
 
 type eventRecordPeer struct {
@@ -73,8 +72,8 @@ func addEvent(respWriter http.ResponseWriter, req *http.Request) {
     err = jsoniter.Unmarshal(eventJson, &record)
 
     if err != nil {
-		writeError(respWriter, err)
-		return
+        writeError(respWriter, err)
+        return
     }
 
     var servNames map[string]string
@@ -91,7 +90,6 @@ func addEvent(respWriter http.ResponseWriter, req *http.Request) {
             record.Actions[i].ServiceName = servNames[key]
         } else {
             servNames[key] = endpoint2Name(key)
-            fmt.Printf(servNames[key])
             record.Actions[i].ServiceName = servNames[key]
         }
     }
