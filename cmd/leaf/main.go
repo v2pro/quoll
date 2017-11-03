@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"github.com/v2pro/plz/countlog"
 	"runtime"
-	"../../leaf"
+    "github.com/v2pro/quoll/leaf"
 	_ "net/http/pprof"
 )
 
