@@ -37,12 +37,12 @@ type eventRecordCallFromInbound eventRecordAction
 type eventRecordReturnInbound eventRecordAction
 
 type eventRecord struct {
-    Context             string
-    SessionId           string
-    sinkTime            int64
-    Actions             []eventRecordAction
-    CallFromInbound     eventRecordCallFromInbound 
-    ReturnInbound       eventRecordReturnInbound 
+    Context             string              `json:"Context"`
+    SessionId           string              `json:"SessionId"`
+    SinkTime            int64               `json:"sinkTime"`
+    Actions             []eventRecordAction `json:"Actions"`
+    CallFromInbound     eventRecordCallFromInbound  `json:"CallFromInbound"`
+    ReturnInbound       eventRecordReturnInbound    `json:"ReturnInbound"`
 }
 
 var store = evtstore.NewStore("/tmp/store")
